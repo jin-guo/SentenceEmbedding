@@ -8,7 +8,6 @@ local GRU, parent = torch.class('SentenceEmbedding.GRU', 'nn.Module')
 
 function GRU:__init(config)
   parent.__init(self)
-
   self.in_dim = config.in_dim
   self.hidden_dim = config.hidden_dim or 50
   self.num_layers = config.num_layers or 1

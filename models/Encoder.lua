@@ -1,4 +1,4 @@
-local Encoder = torch.class('SentenceEmbedding.Encoder', 'nn.Module')
+local Encoder, parent = torch.class('SentenceEmbedding.Encoder', 'nn.Module')
 
 function Encoder:__init(config)
   parent.__init(self)
@@ -50,9 +50,9 @@ end
 -- Returns the final hidden state of the GRU.
 function Encoder:forward(inputs)
   if not string.starts(self.structure,'bi') then
-    return self.rnn.forward()
+    return self.rnn:forward(inputs)
   else
-    return {self.rnn.forward(), self.rnn_b.forward()}
+    return {self.rnn:forward(inputs), self.rnn_b:forward(inputs, true)}
   end
 end
 

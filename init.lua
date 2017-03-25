@@ -8,29 +8,22 @@ require('lfs')
 -- require('cutorch')
 -- require('cunn')
 
-tracenn = {}
+SentenceEmbedding = {}
 
-include('util/read_data.lua')
-include('util/Vocab.lua')
-include('models/IdentityLinear.lua')
-include('models/LinearO.lua')
-include('models/LinearWithBias.lua')
-include('models/LSTM.lua')
+include('models/Encoder.lua')
 include('models/GRU.lua')
-include('models/IRNN.lua')
-include('trace/RNNTrace.lua')
-include('trace/AverageVectTrace.lua')
-
+include('models/GRUDecoder.lua')
+include('SkipThought/SkipThought.lua')
 
 printf = utils.printf
 
 -- global paths (modify if desired)
-tracenn.output = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/'
-tracenn.data_dir        = tracenn.output .. 'data/'
-tracenn.models_dir      = tracenn.output .. 'trained_models/'
-tracenn.predictions_dir = tracenn.output .. 'predictions/'
-tracenn.progress_dir = tracenn.output .. 'progress/'
-tracenn.artifact_dir = tracenn.data_dir .. 'artifact/symbol/'
+-- tracenn.output = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/'
+-- tracenn.data_dir        = tracenn.output .. 'data/'
+-- tracenn.models_dir      = tracenn.output .. 'trained_models/'
+-- tracenn.predictions_dir = tracenn.output .. 'predictions/'
+-- tracenn.progress_dir = tracenn.output .. 'progress/'
+-- tracenn.artifact_dir = tracenn.data_dir .. 'artifact/symbol/'
 
 -- share module parameters
 function share_params(cell, src)
@@ -49,12 +42,12 @@ function share_params(cell, src)
   end
 end
 
-function header(s)
-  print(string.rep('-', 80))
-  print(s)
-  print(string.rep('-', 80))
-end
-
-function string.starts(String,Start)
-   return string.sub(String,1,string.len(Start))==Start
+-- function header(s)
+--   print(string.rep('-', 80))
+--   print(s)
+--   print(string.rep('-', 80))
+-- end
+--
+function string.starts(StringIn,Start)
+  return string.sub('bigru',1,string.len(Start))==Start
 end

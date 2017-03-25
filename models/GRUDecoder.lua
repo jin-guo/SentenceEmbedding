@@ -106,10 +106,16 @@ end
 -- Forward propagate.
 -- inputs: T x in_dim tensor, where T is the number of time steps.
 -- reverse: if true, read the input from right to left (useful for bidirectional GRUs).
--- Returns the final hidden state of the GRU.
+-- Returns all hidden state of the GRU.
 function GRUDecoder:forward(inputs, encoder_output, reverse)
   local size = inputs:size(1)
   self.encoder_output = encoder_output
+
+  if self.num_layers == 1 then
+    self.output = torch.Tensor(size, self.hidden_dim)
+  else
+    self.output = torch.Tensor(size, self.num_layers, self.hidden_dim)
+  end
 
   for t = 1, size do
     local input = reverse and inputs[size - t + 1] or inputs[t]
@@ -127,16 +133,11 @@ function GRUDecoder:forward(inputs, encoder_output, reverse)
     end
 
     local htable = cell:forward({input, prev_output, self.encoder_output})
-    self.output = {}
     if self.num_layers == 1 then
-      self.output = table.insert(self.output, htable)
+      self.output[t] = htable
     else
       for i = 1, self.num_layers do
-        if t == 1 then
-          self.output[i] = htable[i]
-        else
-          self.output[i] = table.insert(self.output[i], htable[i])
-        end
+        self.output[t][i] = htable[i]
       end
     end
   end
