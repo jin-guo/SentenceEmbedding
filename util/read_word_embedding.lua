@@ -2,12 +2,12 @@ require('init')
 
 opt = {
 	binfilename = '/Users/Jinguo/Dropbox/TraceNN_experiment/orignial_wiki_ptc_txt_for_training_wordembedding/wiki_PTC_withNumberSymbol_vector_w2v.txt',
-	outVecs = tracenn.data_dir .. '/wordembedding/wiki_ptc_symbol_300d_w10_i10_word2vec.vecs',
-  outVocab = tracenn.data_dir .. '/wordembedding/wiki_ptc_symbol_300d_w10_i10_word2vec.vocab'
+	outVecs = SentenceEmbedding.data_dir .. '/wordembedding/wiki_ptc_symbol_300d_w10_i10_word2vec.vecs',
+  outVocab = SentenceEmbedding.data_dir .. '/wordembedding/wiki_ptc_symbol_300d_w10_i10_word2vec.vocab'
 }
 
 -- Read the trace vocabulary.
-local vocab = tracenn.Vocab(tracenn.artifact_dir .. 'vocab_ptc_artifact_clean.txt')
+local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.artifact_dir .. 'vocab_ptc_artifact_clean.txt')
 print('Read trace vocabulary with word count:', vocab.size)
 
 --Reading the size

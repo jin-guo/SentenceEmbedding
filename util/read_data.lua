@@ -3,13 +3,15 @@
   Functions for loading data from disk.
 
 --]]
-function tracenn.read_embedding(vocab_path, emb_path)
-  local vocab = tracenn.Vocab(vocab_path)
+function SentenceEmbedding.read_embedding(vocab_path, emb_path)
+  local vocab = SentenceEmbedding.Vocab(vocab_path)
   local embedding = torch.load(emb_path)
   return vocab, embedding
 end
 
-function tracenn.read_sentences(path, vocab)
+-- Read each sentences from the input file located in path
+-- Map each token in sentence to the index of the vocab
+function SentenceEmbedding.read_sentences(path, vocab)
   local sentences = {}
   local file = io.open(path, 'r')
   local line
@@ -21,8 +23,10 @@ function tracenn.read_sentences(path, vocab)
     local sent = torch.IntTensor(len)
     for i = 1, len do
       local token = tokens[i]
+      -- print('Word:'..token)
       sent[i] = vocab:index(token)
     end
+    -- print(sent)
     sentences[#sentences + 1] = sent
   end
 
@@ -30,7 +34,7 @@ function tracenn.read_sentences(path, vocab)
   return sentences
 end
 
-function tracenn.read_artifact(dir, vocab)
+function SentenceEmbedding.read_artifact(dir, vocab)
   local artifact = {}
   artifact.vocab = vocab
   artifact.src_artfs = tracenn.read_sentences(dir .. 'src_artf/sentence.txt', vocab)
@@ -51,7 +55,7 @@ function tracenn.read_artifact(dir, vocab)
 end
 
 
-function tracenn.read_trace_dataset(dir, vocab)
+function SentenceEmbedding.read_trace_dataset(dir, vocab)
   local dataset = {}
   dataset.vocab = vocab
   dataset.lsents = {}

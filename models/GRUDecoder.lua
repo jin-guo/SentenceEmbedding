@@ -148,13 +148,15 @@ end
 -- inputs: T x in_dim tensor, where T is the number of time steps.
 -- grad_outputs: T x num_layers x hidden_dim tensor.
 -- reverse: if true, read the input from right to left.
--- Returns the gradients with respect to the inputs (in the same order as the inputs).
+-- Returns the gradients with respect to the inputs (in the same order as the inputs)
+-- And the gradients with respect to the encoder outputs
 function GRUDecoder:backward(inputs, grad_outputs, reverse)
   local size = inputs:size(1)
   if self.depth == 0 then
     error("No cells to backpropagate through")
   end
 
+  local encoder_output_grads = torch.Tensor(self.encoder_output:size())
   local input_grads = torch.Tensor(inputs:size())
   for t = size, 1, -1 do
     local input = reverse and inputs[size - t + 1] or inputs[t]
@@ -177,10 +179,13 @@ function GRUDecoder:backward(inputs, grad_outputs, reverse)
     else
       input_grads[t] = self.gradInput[1]
     end
+
+    encoder_output_grads = self.gradInput[3]:clone()
+
     self.depth = self.depth - 1
   end
   self:forget() -- important to clear out state
-  return input_grads
+  return input_grads, encoder_output_grads
 end
 
 function GRUDecoder:share(GRU, ...)

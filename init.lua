@@ -14,6 +14,8 @@ include('models/Encoder.lua')
 include('models/GRU.lua')
 include('models/GRUDecoder.lua')
 include('SkipThought/SkipThought.lua')
+include('util/read_data.lua')
+include('util/Vocab.lua')
 
 printf = utils.printf
 
@@ -48,6 +50,6 @@ end
 --   print(string.rep('-', 80))
 -- end
 --
-function string.starts(StringIn,Start)
-  return string.sub('bigru',1,string.len(Start))==Start
+function string.starts(String,Start)
+   return string.sub(String,1,string.len(Start))==Start
 end
