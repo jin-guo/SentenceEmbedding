@@ -1,0 +1,116 @@
+--[[
+
+  Training Script for Trace Software Artifacts.
+
+--]]
+
+require('..')
+
+-- read command line arguments
+local args = lapp [[
+Training script for semantic relatedness prediction on the TRACE dataset.
+  --encoder_layers (default 1)           	 Number of layers for Encoder
+  --encoder_dim    (default 60)        	   Size of hidden dimension for Encoder
+  --encoder_type   (default gru)           Model Type for Encoder
+  --decoder_layers (default 1)           	 Number of layers for Decoder
+  --decoder_dim    (default 60)        	   Size of hidden dimension for Decoder
+  -e,--epochs (default 1)                 Number of training epochs
+  -r,--learning_rate (default 1.00e-03)    Learning Rate during Training NN Model
+  -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
+  -c,--grad_clip (default 10)             Gradient clip threshold
+  -g,--reg  (default 1.00e-04)             Regulation lamda
+  -t,--test_model (default false)          test model on the testing data
+  -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/tracenn/') Output directory
+  -w,--wordembedding_name (default 'wiki_ptc_symbol_300d_w10_i10_word2vec') Name of the word embedding file
+  -p,--progress_output (default 'progress') Name of the progress output file
+]]
+
+SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/'
+
+-- load embeddings
+print('Loading word embeddings')
+local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.data_dir..'artifact/symbol/vocab_ptc_artifact_clean.txt')
+local emb_file_name = args.wordembedding_name --'wiki_ptc_symbol_300d_w10_i10_word2vec'
+local emb_dir = SentenceEmbedding.data_dir ..'wordembedding/'
+local emb_prefix = emb_dir .. emb_file_name
+local emb_vocab, emb_vecs = SentenceEmbedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
+local emb_dim
+for i, vec in ipairs(emb_vecs) do
+  emb_dim = vec:size(1)
+  break
+end
+print('Embedding dim:', emb_dim)
+print('vocabulary size:', vocab.size)
+
+-- use only vectors in vocabulary (not necessary, but gives faster training)
+local num_unk = 0
+local vecs = torch.Tensor(vocab.size, emb_dim)
+for i = 1, vocab.size do
+  local w = vocab:token(i)
+  if emb_vocab:contains(w) then
+    vecs[i] = emb_vecs[emb_vocab:index(w)]
+  else
+    -- print(w)
+    num_unk = num_unk + 1
+    vecs[i]:uniform(-0.05, 0.05)
+  end
+end
+print('Unfound token count: unk count = ' .. num_unk)
+emb_vocab = nil
+emb_vecs = nil
+collectgarbage()
+
+
+-- Read corpus and map each sentence to the index of the vocab
+local corpus={}
+corpus.sentences = SentenceEmbedding.read_sentences('/Users/Jinguo/Dropbox/LS_LC/Project/TSE/Data/sentence.txt', vocab)
+
+-- Create dataset from the corpus
+local dataset = {}
+dataset.embedding_sentence = {}
+dataset.pre_sentence = {}
+dataset.post_sentence = {}
+dataset.size = 0
+for i = 2, #corpus.sentences-1 do
+  dataset.embedding_sentence[#dataset.embedding_sentence + 1] =i
+  dataset.pre_sentence[#dataset.embedding_sentence] =i
+  dataset.post_sentence[#dataset.embedding_sentence] =i
+  dataset.size = dataset.size +1
+end
+
+print('Data points in total:' .. #dataset.embedding_sentence)
+
+
+local model_class = SentenceEmbedding.SkipThought
+local model = model_class{
+  emb_vecs             = vecs,
+  encoder_hidden_dim   = args.encoder_dim,
+  encoder_num_layers   = args.encoder_layers,
+  encoder_structure    = args.encoder_type,
+  decoder_hidden_dim   = args.decoder_dim,
+  decoder_num_layers   = args.decoder_layers,
+  learning_rate        = args.learning_rate,
+  batch_size           = args.batch_size,
+  grad_clip            = args.grad_clip,
+  reg                  = args.reg
+}
+
+
+-- Number of epochs to train
+local num_epochs = args.epochs
+
+-- Print information
+header('model configuration')
+printf('max epochs = %d\n', num_epochs)
+model:print_config()
+
+-- Start Training
+for i = 1, num_epochs do
+
+  local start = sys.clock()
+  printf('-- epoch %d\n', i)
+  printf('-- current learning rate %.10f\n', model.learning_rate)
+  local train_loss = model:train(dataset, corpus)
+  printf('-- finished epoch in %.2fs\n', sys.clock() - start)
+  printf('-- train loss: %.4f\n', train_loss)
+end

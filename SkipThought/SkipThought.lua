@@ -28,7 +28,7 @@ function SkipThought:__init(config)
   -- Input model mapping the word index to embedding vectors
   self.input_module = nn.Sequential()
   local lookup = nn.LookupTable(config.emb_vecs:size(1), self.emb_dim)
-  loopup.weight:copy(config.emb_vecs)
+  lookup.weight:copy(config.emb_vecs)
   self.input_module:add(lookup)
 
 
@@ -53,18 +53,22 @@ function SkipThought:__init(config)
   self.decoder_post = SentenceEmbedding.GRUDecoder(decoder_config)
 
   -- initialize Probability model
-  self.prob_module = nn.Sequential()
-    :add(nn.Linear(decoder_config.hidden_dim, vecs:size(1)))
+  self.prob_module_pre = nn.Sequential()
+    :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
     :add(nn.LogSoftMax())
+  self.prob_module_post = nn.Sequential()
+    :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
+    :add(nn.LogSoftMax())
+  share_params(self.prob_module_pre, self.prob_module_post)
 
   -- For getting all the parameters for the SkipThought model
   local modules = nn.Parallel()
-    :add(encoder)
-    :add(decoder_pre)
-    :add(decoder_post)
-    :add(prob_module)
+    :add(self.encoder)
+    :add(self.decoder_pre)
+    :add(self.decoder_post)
+    :add(self.prob_module_pre)
   self.params, self.grad_params = modules:getParameters()
-  self.encoder_params = encoder:parameters()
+  self.encoder_params = self.encoder:parameters()
 
 end
 
@@ -74,7 +78,7 @@ function SkipThought:train(dataset, corpus)
   self.decoder_post:training()
 
   local indices = torch.randperm(dataset.size)
-  local zeros = torch.zeros(self.hidden_dim)
+  -- local zeros = torch.zeros(self.hidden_dim)
   local train_loss = 0
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
@@ -122,18 +126,18 @@ function SkipThought:train(dataset, corpus)
         end
 
         -- Start the forward process
-        encode_result = encoder:forward(embedding_sentence)
-        pre_decoder_result = decoder_pre:forward(pre_sentence,encode_result)
-        post_decoder_result = decoder_post:forward(post_sentence,encode_result)
+        encode_result = self.encoder:forward(embedding_sentence)
+        pre_decoder_result = self.decoder_pre:forward(pre_sentence,encode_result)
+        post_decoder_result = self.decoder_post:forward(post_sentence,encode_result)
 
 
-        if self.decoder_num_layers.num_layers == 1 then
-          pre_decoder_output = prob_module:forward(pre_decoder_result)
-          post_decoder_output = prob_module:forward(post_decoder_result)
+        if self.decoder_num_layers == 1 then
+          pre_decoder_output = self.prob_module_pre:forward(pre_decoder_result)
+          post_decoder_output = self.prob_module_post:forward(post_decoder_result)
         else
           -- If there are more than one layers, using the final layer output as the decoding result
-          pre_decoder_output = prob_module:forward(pre_decoder_result:select(3, pre_decoder_result:size(3)))
-          post_decoder_output = prob_module:forward(post_decoder_result:select(3, pre_decoder_result:size(3)))
+          pre_decoder_output = self.prob_module_pre:forward(pre_decoder_result:select(3, pre_decoder_result:size(3)))
+          post_decoder_output = self.prob_module_post:forward(post_decoder_result:select(3, pre_decoder_result:size(3)))
         end
 
         -- Remove the last output token since the EOS should be predicted before this token
@@ -158,20 +162,20 @@ function SkipThought:train(dataset, corpus)
 
 
         local pre_prob_grad, post_prob_grad
-        if decoder_config.num_layers == 1 then
-          pre_prob_grad = self.prob_module:backward(pre_decoder_output, pre_sentence_grad)
-          post_prob_grad = self.prob_module:backward(post_decoder_output, post_sentence_grad)
+        if self.decoder_num_layers == 1 then
+          pre_prob_grad = self.prob_module_pre:backward(pre_decoder_result, pre_sentence_grad)
+          post_prob_grad = self.prob_module_post:backward(post_decoder_result, post_sentence_grad)
         else
-          pre_prob_grad = self.prob_module:backward(pre_decoder_output:select(3, pre_decoder_result:size(3)), pre_sentence_grad)
-          pre_prob_grad = self.prob_module:backward(pre_decoder_output:select(3, pre_decoder_result:size(3)), post_sentence_grad)
+          pre_prob_grad = self.prob_module_pre:backward(pre_decoder_result:select(3, pre_decoder_result:size(3)), pre_sentence_grad)
+          pre_prob_grad = self.prob_module_post:backward(pre_decoder_result:select(3, pre_decoder_result:size(3)), post_sentence_grad)
         end
 
-        local pre_decoder_input_grad, pre_encoder_output_grads = decoder_pre:backward(pre_sentence, pre_prob_grad)
-        local post_decoder_input_grad, post_encoder_output_grads = decoder_pre:backward(post_sentence, post_prob_grad)
+        local pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
+        local post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
 
-        local encoder_output_grads
-        encoder_output_grads:add(pre_encoder_output_grads, post_encoder_output_grads)
-        local encode_grad = encoder:backward(embedding_sentence, encoder_output_grads)
+        local encoder_output_grads = pre_encoder_output_grads:clone()
+        encoder_output_grads:add(post_encoder_output_grads)
+        local encode_grad = self.encoder:backward(embedding_sentence, encoder_output_grads)
 
 
       end
@@ -208,9 +212,27 @@ function SkipThought:train(dataset, corpus)
 
     optim.rmsprop(feval, self.params, self.optim_state)
   end
-
   train_loss = train_loss/dataset.size
   xlua.progress(dataset.size, dataset.size)
   print('Training loss', train_loss)
   return train_loss
 end
+
+function SkipThought:print_config()
+  print('Configurations for the Skip Thoughts Model')
+  local num_params = self.params:nElement()
+  -- local num_sim_params = self:new_sim_module():getParameters():nElement()
+  printf('%-25s = %d\n',   'num params', num_params)
+  -- printf('%-25s = %d\n',   'num compositional params', num_params - num_sim_params)
+  -- printf('%-25s = %d\n',   'word vector dim', self.emb_dim)
+  -- printf('%-25s = %d\n',   'RNN hidden dim', self.hidden_dim)
+  -- printf('%-25s = %.2e\n', 'regularization strength', self.reg)
+  -- printf('%-25s = %d\n',   'minibatch size', self.batch_size)
+  -- printf('%-25s = %.2e\n', 'learning rate', self.learning_rate)
+  -- printf('%-25s = %s\n',   'RNN structure', self.structure)
+  -- printf('%-25s = %d\n',   'RNN layers', self.num_layers)
+  -- printf('%-25s = %d\n',   'sim module hidden dim', self.sim_nhidden)
+  -- printf('%-25s = %d\n',   'Gradient clip', self.grad_clip)
+end
+
+--

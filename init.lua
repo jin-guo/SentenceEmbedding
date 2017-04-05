@@ -20,6 +20,8 @@ include('util/Vocab.lua')
 printf = utils.printf
 
 -- global paths (modify if desired)
+SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/'
+
 -- tracenn.output = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/'
 -- tracenn.data_dir        = tracenn.output .. 'data/'
 -- tracenn.models_dir      = tracenn.output .. 'trained_models/'
@@ -44,12 +46,12 @@ function share_params(cell, src)
   end
 end
 
--- function header(s)
---   print(string.rep('-', 80))
---   print(s)
---   print(string.rep('-', 80))
--- end
---
+function header(s)
+  print(string.rep('-', 80))
+  print(s)
+  print(string.rep('-', 80))
+end
+
 function string.starts(String,Start)
    return string.sub(String,1,string.len(Start))==Start
 end
