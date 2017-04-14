@@ -14,22 +14,22 @@ Training script for semantic relatedness prediction on the TRACE dataset.
   --encoder_type   (default gru)           Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 60)        	   Size of hidden dimension for Decoder
-  -e,--epochs (default 1)                 Number of training epochs
+  -e,--epochs (default 10)                 Number of training epochs
   -r,--learning_rate (default 1.00e-03)    Learning Rate during Training NN Model
   -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
   -c,--grad_clip (default 10)             Gradient clip threshold
   -g,--reg  (default 1.00e-04)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
   -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/tracenn/') Output directory
-  -w,--wordembedding_name (default 'wiki_ptc_symbol_300d_w10_i10_word2vec') Name of the word embedding file
+  -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
   -p,--progress_output (default 'progress') Name of the progress output file
 ]]
 
-SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/'
+SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
 
 -- load embeddings
 print('Loading word embeddings')
-local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.data_dir..'artifact/symbol/vocab_ptc_artifact_clean.txt')
+local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.data_dir..'healthIT_Vocab.txt')
 local emb_file_name = args.wordembedding_name --'wiki_ptc_symbol_300d_w10_i10_word2vec'
 local emb_dir = SentenceEmbedding.data_dir ..'wordembedding/'
 local emb_prefix = emb_dir .. emb_file_name
@@ -61,23 +61,15 @@ emb_vecs = nil
 collectgarbage()
 
 
--- Read corpus and map each sentence to the index of the vocab
+-- Read corpus and map each word in sentence to the index of the vocab
 local corpus={}
-corpus.sentences = SentenceEmbedding.read_sentences('/Users/Jinguo/Dropbox/LS_LC/Project/TSE/Data/sentence.txt', vocab)
+corpus = SentenceEmbedding.read_corpus(SentenceEmbedding.data_dir, vocab)
+print('# of sentences in corpus:' .. #corpus.sentences)
+
 
 -- Create dataset from the corpus
 local dataset = {}
-dataset.embedding_sentence = {}
-dataset.pre_sentence = {}
-dataset.post_sentence = {}
-dataset.size = 0
-for i = 2, #corpus.sentences-1 do
-  dataset.embedding_sentence[#dataset.embedding_sentence + 1] =i
-  dataset.pre_sentence[#dataset.embedding_sentence] =i
-  dataset.post_sentence[#dataset.embedding_sentence] =i
-  dataset.size = dataset.size +1
-end
-
+dataset = SentenceEmbedding.read_skipthough_dataset(SentenceEmbedding.data_dir)
 print('Data points in total:' .. #dataset.embedding_sentence)
 
 

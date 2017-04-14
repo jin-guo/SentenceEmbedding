@@ -20,7 +20,7 @@ include('util/Vocab.lua')
 printf = utils.printf
 
 -- global paths (modify if desired)
-SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/'
+SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data'
 
 -- tracenn.output = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/'
 -- tracenn.data_dir        = tracenn.output .. 'data/'
