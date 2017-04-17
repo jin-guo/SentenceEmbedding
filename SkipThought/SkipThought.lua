@@ -56,10 +56,6 @@ function SkipThought:__init(config)
   self.prob_module = nn.Sequential()
     :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
     :add(nn.LogSoftMax())
-  -- self.prob_module_post = nn.Sequential()
-  --   :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
-  --   :add(nn.LogSoftMax())
-  -- share_params(self.prob_module_pre, self.prob_module_post)
 
   -- For getting all the parameters for the SkipThought model
   local modules = nn.Parallel()
@@ -68,7 +64,23 @@ function SkipThought:__init(config)
     :add(self.decoder_post)
     :add(self.prob_module)
   self.params, self.grad_params = modules:getParameters()
+
+  -- Get the number of parameters for encoder
   self.encoder_params = self.encoder:parameters()
+  self.encoder_params_element_number = 0
+  for i=1,#self.encoder_params do
+    self.encoder_params_element_number =
+      self.encoder_params_element_number + self.encoder_params[i]:nElement()
+  end
+
+  -- Get the number of parameters for decoder
+  -- (same configuration for pre and post decoder, so same number)
+  self.decoder_params = self.encoder:parameters()
+  self.decoder_params_element_number = 0
+  for i=1,#self.decoder_params do
+    self.decoder_params_element_number =
+      self.decoder_params_element_number + self.decoder_params[i]:nElement()
+  end
 
 end
 
@@ -78,7 +90,6 @@ function SkipThought:train(dataset, corpus)
   self.decoder_post:training()
 
   local indices = torch.randperm(dataset.size)
-  -- local zeros = torch.zeros(self.hidden_dim)
   local train_loss = 0
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
@@ -94,11 +105,6 @@ function SkipThought:train(dataset, corpus)
       -- For each datapoint in current batch
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
-        -- local idx = i + j - 1
-        -- if idx ~= 1 then
-
-
-        -- print('Datapoint ID:' .. idx)
 
         local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         local embedding_sentence, pre_sentence, post_sentence
@@ -109,10 +115,6 @@ function SkipThought:train(dataset, corpus)
         -- load sentence tuple for the current training data point from the corpus
         if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
           embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
-          -- clone the tensor value. Otherwise they will all point to the output of the input_module
-          -- local forwardResult = self.input_module:forward(
-          --   corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]])
-          -- embedding_sentence = torch.Tensor(forwardResult):copy(forwardResult)
         else
           print('Cannot find embedding sentence for current training '..
             'data point:', dataset.embedding_sentence[idx])
@@ -122,9 +124,6 @@ function SkipThought:train(dataset, corpus)
         if corpus.ids[dataset.pre_sentence[idx]]~= nil then
           pre_sentence_with_vocab_idx =
             corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
-          -- local forwardResult = self.input_module:forward(pre_sentence_with_vocab_idx)
-          -- pre_sentence = torch.Tensor(forwardResult):copy(forwardResult)
-
         else
           print('Cannot find the sentence before the embedding sentence for '..
             'current training data point:', dataset.pre_sentence[idx])
@@ -134,22 +133,22 @@ function SkipThought:train(dataset, corpus)
         if corpus.ids[dataset.post_sentence[idx]]~= nil then
           post_sentence_with_vocab_idx =
             corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
-          -- local forwardResult =  self.input_module:forward(post_sentence_with_vocab_idx)
-          -- post_sentence = torch.Tensor(forwardResult):copy(forwardResult)
-        else
+          else
           print('Cannot find the sentence after the embedding sentence for '..
             'current training data point:', dataset.post_sentence[idx])
           break
         end
 
+        -- If any of the pre sentence or post sentence contains only the EOS token, skip this datapoint
         if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
           goto continue
         end
 
-        -- Map the vocab index to the embedding vectors
+        -- Concatenate three sentences as input for the network,
+        -- and map the vocab index in those sentences to the embedding vectors.
+        -- For the decoder input, the last token (EOS) is removed from the input.
         local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
           pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
-
         local forwardResult = self.input_module:forward(merged_index)
 
         -- Initialze each sentence with its token mapped to embedding vectors
@@ -164,53 +163,42 @@ function SkipThought:train(dataset, corpus)
         encode_result = self.encoder:forward(embedding_sentence)
         pre_decoder_result = self.decoder_pre:forward(pre_sentence,encode_result)
         post_decoder_result = self.decoder_post:forward(post_sentence,encode_result)
-        print('pre_decoder_result:size()')
-        print(pre_decoder_result:size())
 
-        -- print('decoder_result')
+        -- Concatenate the decoder output from pre and post sentences
+        -- as the input for the probability module
         local decoder_result = torch.cat(pre_decoder_result, post_decoder_result, 1)
-        -- print(decoder_result:size())
-
 
         if self.decoder_num_layers == 1 then
           decoder_output = self.prob_module:forward(decoder_result)
-
-          -- pre_decoder_output = self.prob_module_pre:forward(pre_decoder_result)
-          -- post_decoder_output = self.prob_module_post:forward(post_decoder_result)
         else
           -- If there are more than one layers, using the final layer output as the decoding result
           decoder_output = self.prob_module:forward(
             decoder_result:select(2, decoder_result:size(2)))
-
-          -- pre_decoder_output = self.prob_module_pre:forward(
-          --   pre_decoder_result:select(2, pre_decoder_result:size(2)))
-          -- post_decoder_output = self.prob_module_post:forward(
-          --   post_decoder_result:select(2, post_decoder_result:size(2)))
         end
 
+        -- Create the prediction target from the pre and post sentences
         pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
         post_target = post_sentence_with_vocab_idx:sub(2, -1)
         local target = torch.cat(pre_target, post_target, 1)
+
         local sentence_loss = self.criterion:forward(decoder_output, target)
         local sentence_grad = self.criterion:backward(decoder_output, target)
-
-        train_loss = train_loss + sentence_loss
-        print(sentence_loss)
+        loss = loss + sentence_loss
 
         local encoder_output_grads = nil
         if self.decoder_num_layers == 1 then
-          -- print('Before here')
           prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
-          -- print('After here')
         else
           prob_grad = self.prob_module:backward(decoder_result:select(2, decoder_result:size(2)), sentence_grad)
         end
 
+        -- Get the gradient for the pre sentence decoder and the post sentence decoder
         local pre_prob_grad, post_prob_grad
         pre_prob_grad = prob_grad:narrow(1, 1, pre_decoder_result:size(1))
         post_prob_grad = prob_grad:narrow(1, pre_decoder_result:size(1)+1,
           post_decoder_result:size(1))
 
+        -- The gradient for encoder is the sum of gradient calculated from pre and post sentences
         local pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
         encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
         local post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
@@ -224,19 +212,35 @@ function SkipThought:train(dataset, corpus)
       train_loss = train_loss + loss
 
       loss = loss / batch_size
-      -- print('Loss:', loss)
+      print('Loss:', loss)
       self.grad_params:div(batch_size)
 
-      -- TODO: Gradient clipping
-      -- : if the norm of rnn gradient is bigger than threshold
+      -- Gradient clipping:
+      -- if the norm of encoder or decoder gradient is bigger than threshold
       -- scale the gradient to
-      -- local encoder_grad_params = self.grad_params:narrow(1,1,self.rnn_params_element_number)
-      --
-      -- local rnn_grad_norm = torch.norm(rnn_grad_params)
-      -- if rnn_grad_norm > self.grad_clip then
-      --   print('clipping gradient')
-      --     rnn_grad_params:div(rnn_grad_norm/self.grad_clip)
-      -- end
+      local encoder_grad_params = self.grad_params:narrow(1,1,self.encoder_params_element_number)
+      local encoder_grad_norm = torch.norm(encoder_grad_params)
+      if encoder_grad_norm > self.grad_clip then
+        print('clipping gradient for encoder')
+          encoder_grad_params:div(encoder_grad_norm/self.grad_clip)
+      end
+
+      local pre_decoder_grad_params = self.grad_params:narrow(1,
+        self.encoder_params_element_number+1, self.decoder_params_element_number)
+      local pre_decoder_grad_norm = torch.norm(pre_decoder_grad_params)
+      if pre_decoder_grad_norm > self.grad_clip then
+        print('clipping gradient for pre decoder')
+          pre_decoder_grad_params:div(pre_decoder_grad_norm/self.grad_clip)
+      end
+
+      local post_decoder_grad_params = self.grad_params:narrow(1,
+        self.encoder_params_element_number + self.decoder_params_element_number + 1,
+        self.decoder_params_element_number)
+      local post_decoder_grad_norm = torch.norm(post_decoder_grad_params)
+      if post_decoder_grad_norm > self.grad_clip then
+        print('clipping gradient for post decoder')
+          post_decoder_grad_params:div(post_decoder_grad_norm/self.grad_clip)
+      end
 
       -- regularization
       loss = loss + 0.5 * self.reg * self.params:norm() ^ 2 * batch_size/dataset.size

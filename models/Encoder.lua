@@ -102,3 +102,7 @@ function Encoder:BiRNN_backward(inputs, grad_outputs)
   self.rnn:backward(inputs, grad)
   return self.rnn_b:backward(inputs, grad_b, true)
 end
+
+function Encoder:parameters()
+  return self.rnn:parameters()
+end
