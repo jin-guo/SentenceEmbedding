@@ -53,20 +53,20 @@ function SkipThought:__init(config)
   self.decoder_post = SentenceEmbedding.GRUDecoder(decoder_config)
 
   -- initialize Probability model
-  self.prob_module_pre = nn.Sequential()
+  self.prob_module = nn.Sequential()
     :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
     :add(nn.LogSoftMax())
-  self.prob_module_post = nn.Sequential()
-    :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
-    :add(nn.LogSoftMax())
-  share_params(self.prob_module_pre, self.prob_module_post)
+  -- self.prob_module_post = nn.Sequential()
+  --   :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
+  --   :add(nn.LogSoftMax())
+  -- share_params(self.prob_module_pre, self.prob_module_post)
 
   -- For getting all the parameters for the SkipThought model
   local modules = nn.Parallel()
     :add(self.encoder)
     :add(self.decoder_pre)
     :add(self.decoder_post)
-    :add(self.prob_module_pre)
+    :add(self.prob_module)
   self.params, self.grad_params = modules:getParameters()
   self.encoder_params = self.encoder:parameters()
 
@@ -94,7 +94,13 @@ function SkipThought:train(dataset, corpus)
       -- For each datapoint in current batch
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
+        -- local idx = i + j - 1
+        -- if idx ~= 1 then
 
+
+        -- print('Datapoint ID:' .. idx)
+
+        local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         local embedding_sentence, pre_sentence, post_sentence
         local encode_result, pre_decoder_result, post_decoder_result
         local pre_decoder_output, post_decoder_output
@@ -102,22 +108,22 @@ function SkipThought:train(dataset, corpus)
 
         -- load sentence tuple for the current training data point from the corpus
         if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
+          embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
           -- clone the tensor value. Otherwise they will all point to the output of the input_module
-          local forwardResult = self.input_module:forward(
-            corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]])
-          embedding_sentence = torch.Tensor(forwardResult):copy(forwardResult)
+          -- local forwardResult = self.input_module:forward(
+          --   corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]])
+          -- embedding_sentence = torch.Tensor(forwardResult):copy(forwardResult)
         else
           print('Cannot find embedding sentence for current training '..
             'data point:', dataset.embedding_sentence[idx])
           break
         end
 
-        local pre_sentence_with_vocab_idx
         if corpus.ids[dataset.pre_sentence[idx]]~= nil then
           pre_sentence_with_vocab_idx =
             corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
-          local forwardResult = self.input_module:forward(pre_sentence_with_vocab_idx)
-          pre_sentence = torch.Tensor(forwardResult):copy(forwardResult)
+          -- local forwardResult = self.input_module:forward(pre_sentence_with_vocab_idx)
+          -- pre_sentence = torch.Tensor(forwardResult):copy(forwardResult)
 
         else
           print('Cannot find the sentence before the embedding sentence for '..
@@ -125,86 +131,95 @@ function SkipThought:train(dataset, corpus)
           break
         end
 
-        local post_sentence_with_vocab_idx
         if corpus.ids[dataset.post_sentence[idx]]~= nil then
           post_sentence_with_vocab_idx =
             corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
-          local forwardResult =  self.input_module:forward(post_sentence_with_vocab_idx)
-          post_sentence = torch.Tensor(forwardResult):copy(forwardResult)
+          -- local forwardResult =  self.input_module:forward(post_sentence_with_vocab_idx)
+          -- post_sentence = torch.Tensor(forwardResult):copy(forwardResult)
         else
           print('Cannot find the sentence after the embedding sentence for '..
             'current training data point:', dataset.post_sentence[idx])
           break
         end
 
+        if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
+          goto continue
+        end
+
+        -- Map the vocab index to the embedding vectors
+        local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
+          pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
+
+        local forwardResult = self.input_module:forward(merged_index)
+
+        -- Initialze each sentence with its token mapped to embedding vectors
+        embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
+        pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
+          pre_sentence_with_vocab_idx:size(1)-1)
+        post_sentence = forwardResult:narrow(1,
+          embedding_sentence_with_vocab_idx:size(1) + pre_sentence_with_vocab_idx:size(1),
+          post_sentence_with_vocab_idx:size(1)-1)
+
         -- Start the forward process
         encode_result = self.encoder:forward(embedding_sentence)
         pre_decoder_result = self.decoder_pre:forward(pre_sentence,encode_result)
         post_decoder_result = self.decoder_post:forward(post_sentence,encode_result)
+        print('pre_decoder_result:size()')
+        print(pre_decoder_result:size())
+
+        -- print('decoder_result')
+        local decoder_result = torch.cat(pre_decoder_result, post_decoder_result, 1)
+        -- print(decoder_result:size())
 
 
         if self.decoder_num_layers == 1 then
-          pre_decoder_output = self.prob_module_pre:forward(pre_decoder_result)
-          post_decoder_output = self.prob_module_post:forward(post_decoder_result)
+          decoder_output = self.prob_module:forward(decoder_result)
+
+          -- pre_decoder_output = self.prob_module_pre:forward(pre_decoder_result)
+          -- post_decoder_output = self.prob_module_post:forward(post_decoder_result)
         else
           -- If there are more than one layers, using the final layer output as the decoding result
-          pre_decoder_output = self.prob_module_pre:forward(
-            pre_decoder_result:select(3, pre_decoder_result:size(3)))
-          post_decoder_output = self.prob_module_post:forward(
-            post_decoder_result:select(3, post_decoder_result:size(3)))
+          decoder_output = self.prob_module:forward(
+            decoder_result:select(2, decoder_result:size(2)))
+
+          -- pre_decoder_output = self.prob_module_pre:forward(
+          --   pre_decoder_result:select(2, pre_decoder_result:size(2)))
+          -- post_decoder_output = self.prob_module_post:forward(
+          --   post_decoder_result:select(2, post_decoder_result:size(2)))
         end
+
+        pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
+        post_target = post_sentence_with_vocab_idx:sub(2, -1)
+        local target = torch.cat(pre_target, post_target, 1)
+        local sentence_loss = self.criterion:forward(decoder_output, target)
+        local sentence_grad = self.criterion:backward(decoder_output, target)
+
+        train_loss = train_loss + sentence_loss
+        print(sentence_loss)
 
         local encoder_output_grads = nil
-        -- Remove the last output token since the EOS should be predicted before this token
-        if pre_sentence_with_vocab_idx:size(1)>1 then
-          pre_decoder_pred = pre_decoder_output:sub(1, pre_decoder_output:size(1)-1)
-          -- The prediction target starts from the second of the token in the sentence sequence
-          pre_target = pre_sentence_with_vocab_idx:sub(2, pre_sentence_with_vocab_idx:size(1))
-          local pre_sentence_loss = self.criterion:forward(pre_decoder_pred, pre_target)
-          local pre_sentence_grad_ori = self.criterion:backward(pre_decoder_pred, pre_target)
-          local pre_sentence_grad = torch.Tensor(pre_sentence_grad_ori):copy(pre_sentence_grad_ori)
-          train_loss = train_loss + pre_sentence_loss
-
-          local pre_prob_grad
-          if self.decoder_num_layers == 1 then
-            pre_prob_grad = self.prob_module_pre:backward(pre_decoder_result, pre_sentence_grad)
-          else
-            pre_prob_grad = self.prob_module_pre:backward(pre_decoder_result:select(3, pre_decoder_result:size(3)), pre_sentence_grad)
-          end
-
-          local pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
-          if encoder_output_grads == nil then
-            encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
-          end
+        if self.decoder_num_layers == 1 then
+          -- print('Before here')
+          prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
+          -- print('After here')
+        else
+          prob_grad = self.prob_module:backward(decoder_result:select(2, decoder_result:size(2)), sentence_grad)
         end
 
-        if post_sentence_with_vocab_idx:size(1)>1 then
-          post_decoder_pred = post_decoder_output:sub(1, post_decoder_output:size(1)-1)
-          post_target = post_sentence_with_vocab_idx:sub(2, post_sentence_with_vocab_idx:size(1))
+        local pre_prob_grad, post_prob_grad
+        pre_prob_grad = prob_grad:narrow(1, 1, pre_decoder_result:size(1))
+        post_prob_grad = prob_grad:narrow(1, pre_decoder_result:size(1)+1,
+          post_decoder_result:size(1))
 
-          local post_sentence_loss = self.criterion:forward(post_decoder_pred, post_target)
-          local post_sentence_grad = self.criterion:backward(post_decoder_pred, post_target)
-
-          train_loss = train_loss + post_sentence_loss
-
-          local post_prob_grad
-          if self.decoder_num_layers == 1 then
-            post_prob_grad = self.prob_module_post:backward(post_decoder_result, post_sentence_grad)
-          else
-            post_prob_grad = self.prob_module_post:backward(post_prob_grad:select(3, post_prob_grad:size(3)), post_sentence_grad)
-          end
-
-          local post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
-          if encoder_output_grads == nil then
-            encoder_output_grads = torch.Tensor(post_encoder_output_grads):copy(post_encoder_output_grads)
-          else
-            encoder_output_grads:add(post_encoder_output_grads)
-          end
-        end
+        local pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
+        encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
+        local post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
+        encoder_output_grads:add(post_encoder_output_grads)
 
         if encoder_output_grads ~= nil then
           local encode_grad = self.encoder:backward(embedding_sentence, encoder_output_grads)
         end
+        ::continue::
       end
       train_loss = train_loss + loss
 

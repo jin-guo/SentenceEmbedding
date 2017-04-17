@@ -106,7 +106,9 @@ end
 -- Forward propagate.
 -- inputs: T x in_dim tensor, where T is the number of time steps.
 -- reverse: if true, read the input from right to left (useful for bidirectional GRUs).
--- Returns all hidden state of the GRU.
+-- Returns all hidden state of the GRU (hidden state of each time step).
+-- output: T x h_dim in the case of one layers
+-- output: T x num_layers x h_dim in the case of more than one layers)
 function GRUDecoder:forward(inputs, encoder_output, reverse)
   local size = inputs:size(1)
   self.encoder_output = encoder_output
