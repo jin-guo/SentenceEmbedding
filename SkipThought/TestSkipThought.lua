@@ -26,7 +26,7 @@ Training script for semantic relatedness prediction on the TRACE dataset.
 ]]
 
 SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
-
+SentenceEmbedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
 -- load embeddings
 print('Loading word embeddings')
 local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.data_dir..'healthIT_Vocab.txt')
@@ -105,4 +105,8 @@ for i = 1, num_epochs do
   local train_loss = model:train(dataset, corpus)
   printf('-- finished epoch in %.2fs\n', sys.clock() - start)
   printf('-- train loss: %.4f\n', train_loss)
+
+  local model_save_path = SentenceEmbedding.models_dir .. '_1.model'
+  print('writing model to ' .. model_save_path)
+  model:save(model_save_path)
 end
