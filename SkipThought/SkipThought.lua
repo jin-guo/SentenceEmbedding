@@ -105,7 +105,7 @@ function SkipThought:train(dataset, corpus)
       -- For each datapoint in current batch
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
-
+  
         local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         local embedding_sentence, pre_sentence, post_sentence
         local encode_result, pre_decoder_result, post_decoder_result
@@ -247,17 +247,12 @@ function SkipThought:train(dataset, corpus)
       -- Final derivatives to return after regularization:
       -- self.grad_params + self.reg*self.params
       self.grad_params:add(self.reg, self.params)
-      -- count = count + 1
-      -- print(count)
+
       return loss, self.grad_params
     end
-
-  --  print('Check the gradients:', self.grad_params:size(1)*2)
-  --  diff, dc, dc_est = optim.checkgrad(feval, self.params:clone())
-  --  print('Diff must be close to 1e-8: diff = ' .. diff)
-
     optim.rmsprop(feval, self.params, self.optim_state)
   end
+
   train_loss = train_loss/dataset.size
   xlua.progress(dataset.size, dataset.size)
   print('Training loss', train_loss)
@@ -281,4 +276,37 @@ function SkipThought:print_config()
   -- printf('%-25s = %d\n',   'Gradient clip', self.grad_clip)
 end
 
+
 --
+-- Serialization
+--
+function SkipThought:save(path)
+  local config = {
+    encoder_hidden_dim  = self.encoder_hidden_dim,
+    encoder_num_layers  = self.encoder_num_layers,
+    encoder_structure   = self.encoder_structure,
+    decoder_hidden_dim  = self.decoder_hidden_dim,
+    decoder_num_layers  = self.decoder_num_layers,
+
+    learning_rate       = self.learning_rate,
+    batch_size          = self.batch_size,
+    reg                 = self.reg,
+    grad_clip           = self.grad_clip,
+
+    -- word embedding
+    emb_vecs            = self.emb_vecs,
+    emb_dim             = self.emb_dim
+  }
+
+  torch.save(path, {
+    params = self.params,
+    config = config,
+  })
+end
+
+function SkipThought.load(path)
+  local state = torch.load(path)
+  local model = SentenceEmbedding.SkipThought.new(state.config)
+  model.params:copy(state.params)
+  return model
+end
