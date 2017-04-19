@@ -17,8 +17,13 @@ function SkipThought:__init(config)
   self.emb_dim = config.emb_vecs:size(2)
 
   -- optimizer configuration
-  self.optim_state = { learningRate = self.learning_rate }
-
+  -- self.optim_state = { learningRate = self.learning_rate }
+  self.optim_state = {
+     learningRate = self.learning_rate,
+     learningRateDecay = 1e-3,
+     weightDecay = 0,
+     momentum = 0
+  }
   -- Set Objective as minimize Negative Log Likelihood
   -- Remember to set the size_average to false to use the effect of weight!!
   -- self.criterion = nn.ClassNLLCriterion(self.class_weight, false)
@@ -42,8 +47,14 @@ function SkipThought:__init(config)
   self.encoder = SentenceEmbedding.Encoder(encoder_config)
 
   -- initialize Decoder model
+  local encoder_out_dim_real
+  if string.starts(self.encoder_structure,'bi') then
+    encoder_out_dim_real = 2*self.encoder_hidden_dim
+  else
+    encoder_out_dim = self.encoder_hidden_dim
+  end
   local decoder_config = {
-    encoder_out_dim = self.encoder_hidden_dim,
+    encoder_out_dim = encoder_out_dim_real,
     in_dim          = self.emb_vecs:size(2),
     hidden_dim      = self.decoder_hidden_dim,
     num_layers      = self.decoder_num_layers
@@ -105,7 +116,7 @@ function SkipThought:train(dataset, corpus)
       -- For each datapoint in current batch
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
-  
+
         local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         local embedding_sentence, pre_sentence, post_sentence
         local encode_result, pre_decoder_result, post_decoder_result
@@ -161,6 +172,9 @@ function SkipThought:train(dataset, corpus)
 
         -- Start the forward process
         encode_result = self.encoder:forward(embedding_sentence)
+        if string.starts(self.encoder_structure,'bi') then
+          encode_result = torch.cat(encode_result[1],  encode_result[2], 1)
+        end
         pre_decoder_result = self.decoder_pre:forward(pre_sentence,encode_result)
         post_decoder_result = self.decoder_post:forward(post_sentence,encode_result)
 
@@ -250,7 +264,9 @@ function SkipThought:train(dataset, corpus)
 
       return loss, self.grad_params
     end
-    optim.rmsprop(feval, self.params, self.optim_state)
+    -- optim.rmsprop(feval, self.params, self.optim_state)
+    optim.adam(feval, self.params, self.optim_state)
+
   end
 
   train_loss = train_loss/dataset.size
