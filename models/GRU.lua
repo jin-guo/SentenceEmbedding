@@ -102,6 +102,8 @@ end
 -- inputs: T x in_dim tensor, where T is the number of time steps.
 -- reverse: if true, read the input from right to left (useful for bidirectional GRUs).
 -- Returns the final hidden state of the GRU (hidden state at time T).
+-- If more than one layer, outputs is a Table of Tensors (num_layers elements),
+-- each Tensor is hidden_dim dimension
 function GRU:forward(inputs, reverse)
   local size = inputs:size(1)
   for t = 1, size do

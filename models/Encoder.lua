@@ -73,11 +73,11 @@ function Encoder:RNN_backward(inputs, grad_outputs)
   local grad
   if self.num_layers == 1 then
     grad = torch.zeros(inputs:size(1), self.hidden_dim)
-    grad[inputs:size(1)] = grad_outputs[1]
+    grad[inputs:size(1)] = grad_outputs
   else
     grad = torch.zeros(inputs:size(1), self.num_layers, self.hidden_dim)
     for l = 1, self.num_layers do
-      grad[{inputs:size(1), l, {}}] = grad_outputs[1][l]
+      grad[{inputs:size(1), l, {}}] = grad_outputs[l]
     end
   end
   return self.rnn:backward(inputs, grad)
@@ -105,4 +105,11 @@ end
 
 function Encoder:parameters()
   return self.rnn:parameters()
+end
+
+function Encoder:forget()
+  self.rnn:forget()
+  if self.rnn_b then
+    self.rnn_b:forget()
+  end
 end
