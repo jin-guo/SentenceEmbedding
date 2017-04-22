@@ -16,6 +16,7 @@ include('models/GRUDecoder.lua')
 include('SkipThought/SkipThought.lua')
 include('util/read_data.lua')
 include('util/Vocab.lua')
+include('test/CheckGradient.lua')
 
 printf = utils.printf
 
