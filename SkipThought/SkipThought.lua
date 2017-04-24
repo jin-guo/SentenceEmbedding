@@ -18,12 +18,7 @@ function SkipThought:__init(config)
 
   -- optimizer configuration
   self.optim_state = { learningRate = self.learning_rate }
-  -- self.optim_state = {
-  --    learningRate = self.learning_rate,
-  --    learningRateDecay = 1e-4,
-  --    weightDecay = 0,
-  --    momentum = 0
-  -- }
+
   -- Set Objective as minimize Negative Log Likelihood
   -- Remember to set the size_average to false to use the effect of weight!!
   -- self.criterion = nn.ClassNLLCriterion(self.class_weight, false)
@@ -112,7 +107,7 @@ function SkipThought:train(dataset, corpus)
       end
       self.grad_params:zero()
 
-      local loss = 0
+      local batch_loss = 0
       -- For each datapoint in current batch
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
@@ -181,10 +176,11 @@ function SkipThought:train(dataset, corpus)
         local target = torch.cat(pre_target, post_target, 1)
 
         local sentence_loss = self.criterion:forward(decoder_output, target)
+        batch_loss = batch_loss + sentence_loss
+        print('sentence_loss:', sentence_loss)
+
         -- Starting the backward process
         local sentence_grad = self.criterion:backward(decoder_output, target)
-        loss = loss + sentence_loss
-
         local prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
 
         -- Get the gradient for the pre sentence decoder and the post sentence decoder
@@ -199,9 +195,8 @@ function SkipThought:train(dataset, corpus)
 
         ::continue::
       end -- Finished
-      train_loss = train_loss + loss
-      -- loss = loss / batch_size
-      -- print('Loss:', loss)
+      train_loss = train_loss + batch_loss
+
       self.grad_params:div(batch_size)
 
       -- Gradient clipping:
@@ -232,15 +227,15 @@ function SkipThought:train(dataset, corpus)
       end
 
       -- regularization
-      loss = loss + 0.5 * self.reg * self.params:norm() ^ 2 * batch_size/dataset.size
+      batch_loss = batch_loss + 0.5 * self.reg * self.params:norm() ^ 2 * batch_size/dataset.size
       -- Final derivatives to return after regularization:
       -- self.grad_params + self.reg*self.params
       self.grad_params:add(self.reg, self.params)
 
-      return loss, self.grad_params
+      return batch_loss, self.grad_params
     end
+    -- Works better than optim.adam
     optim.rmsprop(feval, self.params, self.optim_state)
-    -- optim.adam(feval, self.params, self.optim_state)
   end
 
   train_loss = train_loss/dataset.size
