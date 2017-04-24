@@ -181,9 +181,12 @@ function GRUDecoder:backward(inputs, grad_outputs, reverse)
     else
       input_grads[t] = self.gradInput[1]
     end
-
-    encoder_output_grads = self.gradInput[3]:clone()
-
+    -- Calculate the gradient to the encoder input
+    if t == size then
+      encoder_output_grads = self.gradInput[3]
+    else
+      encoder_output_grads:add(self.gradInput[3])
+    end
     self.depth = self.depth - 1
   end
   self:forget() -- important to clear out state

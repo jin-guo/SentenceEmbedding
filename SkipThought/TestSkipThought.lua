@@ -10,17 +10,17 @@ require('..')
 local args = lapp [[
 Training script for semantic relatedness prediction on the TRACE dataset.
   --encoder_layers (default 1)           	 Number of layers for Encoder
-  --encoder_dim    (default 60)        	   Size of hidden dimension for Encoder
+  --encoder_dim    (default 20)        	   Size of hidden dimension for Encoder
   --encoder_type   (default bigru)           Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
-  --decoder_dim    (default 60)        	   Size of hidden dimension for Decoder
-  -e,--epochs (default 10)                 Number of training epochs
+  --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
+  -e,--epochs (default 50)                 Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
-  -b,--batch_size (default 20)              Batch Size of training data point for each update of parameters
+  -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
   -c,--grad_clip (default 1)             Gradient clip threshold
-  -g,--reg  (default 1.00e-04)             Regulation lamda
+  -g,--reg  (default 0)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
-  -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/tracenn/') Output directory
+  -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
   -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
   -p,--progress_output (default 'progress') Name of the progress output file
 ]]
@@ -105,8 +105,8 @@ for i = 1, num_epochs do
   local train_loss = model:train(dataset, corpus)
   printf('-- finished epoch in %.2fs\n', sys.clock() - start)
   printf('-- train loss: %.4f\n', train_loss)
-
-  local model_save_path = SentenceEmbedding.models_dir .. '_1.model'
-  print('writing model to ' .. model_save_path)
-  model:save(model_save_path)
 end
+
+local model_save_path = SentenceEmbedding.models_dir .. '_1.model'
+print('writing model to ' .. model_save_path)
+model:save(model_save_path)

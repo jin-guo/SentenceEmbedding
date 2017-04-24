@@ -53,13 +53,13 @@ local f_decoder = function(x)
   local loss, outputs
   local decoder_outputs = model:forward(data.inputs, data.encoder_output)
   if model.num_layers>1 then
-    local decoder_output_merged = torch.zeros(data.inputs:size(1), model.num_layers*model.hidden_dim)
+    local decoder_output_flatten = torch.zeros(data.inputs:size(1), model.num_layers*model.hidden_dim)
     for t = 1, data.inputs:size(1) do
       local output_current_time = decoder_outputs:select(1, t)
       output_current_time = output_current_time:view(output_current_time:nElement())
-      decoder_output_merged[t] = output_current_time
+      decoder_output_flatten[t] = output_current_time
     end
-    outputs = linear_model:forward(decoder_output_merged)
+    outputs = linear_model:forward(decoder_output_flatten)
   else -- Case: model.num_layers == 1
     outputs = linear_model:forward(decoder_outputs)
   end
@@ -79,15 +79,15 @@ local g_decoder = function(x)
   local loss, output_for_criterion, gradInput_cri
   local decoder_outputs = model:forward(data.inputs, data.encoder_output)
   if model.num_layers>1 then
-    local decoder_output_merged = torch.zeros(data.inputs:size(1), model.num_layers*model.hidden_dim)
+    local decoder_output_flatten = torch.zeros(data.inputs:size(1), model.num_layers*model.hidden_dim)
     for t = 1, data.inputs:size(1) do
       local output_current_time = decoder_outputs:select(1, t)
       output_current_time = output_current_time:view(output_current_time:nElement())
-      decoder_output_merged[t] = output_current_time
+      decoder_output_flatten[t] = output_current_time
     end
-    local outputs = linear_model:forward(decoder_output_merged)
+    local outputs = linear_model:forward(decoder_output_flatten)
     loss = criterion:forward(outputs, data.targets)
-    gradInput_cri = linear_model:backward(decoder_output_merged, criterion:backward(outputs, data.targets))
+    gradInput_cri = linear_model:backward(decoder_output_flatten, criterion:backward(outputs, data.targets))
 
   else -- Case: model.num_layers == 1
     local outputs = linear_model:forward(decoder_outputs)
@@ -104,7 +104,7 @@ local g_decoder = function(x)
     end
     model:backward(data.inputs, gradInput_for_decoder)
   else -- Case: model.num_layers == 1
-      model:backward(data.inputs, gradInput_cri)
+    model:backward(data.inputs, gradInput_cri)
   end
   return gradParameters
 end

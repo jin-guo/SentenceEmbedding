@@ -17,13 +17,13 @@ function SkipThought:__init(config)
   self.emb_dim = config.emb_vecs:size(2)
 
   -- optimizer configuration
-  -- self.optim_state = { learningRate = self.learning_rate }
-  self.optim_state = {
-     learningRate = self.learning_rate,
-     learningRateDecay = 1e-3,
-     weightDecay = 0,
-     momentum = 0
-  }
+  self.optim_state = { learningRate = self.learning_rate }
+  -- self.optim_state = {
+  --    learningRate = self.learning_rate,
+  --    learningRateDecay = 1e-4,
+  --    weightDecay = 0,
+  --    momentum = 0
+  -- }
   -- Set Objective as minimize Negative Log Likelihood
   -- Remember to set the size_average to false to use the effect of weight!!
   -- self.criterion = nn.ClassNLLCriterion(self.class_weight, false)
@@ -49,9 +49,9 @@ function SkipThought:__init(config)
   -- initialize Decoder model
   local encoder_out_dim_real
   if string.starts(self.encoder_structure,'bi') then
-    encoder_out_dim_real = 2*self.encoder_hidden_dim
+    encoder_out_dim_real = 2*self.encoder_num_layers*self.encoder_hidden_dim
   else
-    encoder_out_dim = self.encoder_hidden_dim
+    encoder_out_dim_real = self.encoder_num_layers*self.encoder_hidden_dim
   end
   local decoder_config = {
     encoder_out_dim = encoder_out_dim_real,
@@ -65,7 +65,7 @@ function SkipThought:__init(config)
 
   -- initialize Probability model
   self.prob_module = nn.Sequential()
-    :add(nn.Linear(decoder_config.hidden_dim, self.emb_vecs:size(1)))
+    :add(nn.Linear(self.decoder_num_layers*self.decoder_hidden_dim, self.emb_vecs:size(1)))
     :add(nn.LogSoftMax())
 
   -- For getting all the parameters for the SkipThought model
@@ -74,6 +74,7 @@ function SkipThought:__init(config)
     :add(self.decoder_pre)
     :add(self.decoder_post)
     :add(self.prob_module)
+    -- :add(self.input_module)
   self.params, self.grad_params = modules:getParameters()
 
   -- Get the number of parameters for encoder
@@ -92,7 +93,6 @@ function SkipThought:__init(config)
     self.decoder_params_element_number =
       self.decoder_params_element_number + self.decoder_params[i]:nElement()
   end
-
 end
 
 function SkipThought:train(dataset, corpus)
@@ -118,11 +118,6 @@ function SkipThought:train(dataset, corpus)
         local idx = indices[i + j - 1]
 
         local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
-        local embedding_sentence, pre_sentence, post_sentence
-        local encode_result, pre_decoder_result, post_decoder_result
-        local pre_decoder_output, post_decoder_output
-        local pre_target, post_target
-
         -- load sentence tuple for the current training data point from the corpus
         if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
           embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
@@ -157,12 +152,13 @@ function SkipThought:train(dataset, corpus)
 
         -- Concatenate three sentences as input for the network,
         -- and map the vocab index in those sentences to the embedding vectors.
-        -- For the decoder input, the last token (EOS) is removed from the input.
+        -- For the decoder input, the last token (EOS) of pre and post sentence is removed from the input.
         local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
           pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
         local forwardResult = self.input_module:forward(merged_index)
 
         -- Initialze each sentence with its token mapped to embedding vectors
+        local embedding_sentence, pre_sentence, post_sentence
         embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
         pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
           pre_sentence_with_vocab_idx:size(1)-1)
@@ -171,62 +167,41 @@ function SkipThought:train(dataset, corpus)
           post_sentence_with_vocab_idx:size(1)-1)
 
         -- Start the forward process
-        encode_result = self.encoder:forward(embedding_sentence)
-        if string.starts(self.encoder_structure,'bi') then
-          encode_result = torch.cat(encode_result[1],  encode_result[2], 1)
-        end
-        pre_decoder_result = self.decoder_pre:forward(pre_sentence,encode_result)
-        post_decoder_result = self.decoder_post:forward(post_sentence,encode_result)
+        local output_for_decoder = self:encoder_forward(embedding_sentence)
 
-        -- Concatenate the decoder output from pre and post sentences
-        -- as the input for the probability module
-        local decoder_result = torch.cat(pre_decoder_result, post_decoder_result, 1)
+        -- Forward result to Decoder
+        local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
 
-        if self.decoder_num_layers == 1 then
-          decoder_output = self.prob_module:forward(decoder_result)
-        else
-          -- If there are more than one layers, using the final layer output as the decoding result
-          decoder_output = self.prob_module:forward(
-            decoder_result:select(2, decoder_result:size(2)))
-        end
+        local decoder_output = self.prob_module:forward(decoder_result)
 
         -- Create the prediction target from the pre and post sentences
+        local pre_target, post_target
         pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
         post_target = post_sentence_with_vocab_idx:sub(2, -1)
         local target = torch.cat(pre_target, post_target, 1)
 
         local sentence_loss = self.criterion:forward(decoder_output, target)
+        -- Starting the backward process
         local sentence_grad = self.criterion:backward(decoder_output, target)
         loss = loss + sentence_loss
 
-        local encoder_output_grads = nil
-        if self.decoder_num_layers == 1 then
-          prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
-        else
-          prob_grad = self.prob_module:backward(decoder_result:select(2, decoder_result:size(2)), sentence_grad)
-        end
+        local prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
 
         -- Get the gradient for the pre sentence decoder and the post sentence decoder
-        local pre_prob_grad, post_prob_grad
-        pre_prob_grad = prob_grad:narrow(1, 1, pre_decoder_result:size(1))
-        post_prob_grad = prob_grad:narrow(1, pre_decoder_result:size(1)+1,
-          post_decoder_result:size(1))
+        local pre_encoder_output_grads, post_encoder_output_grads =
+          self:decoder_backward(pre_sentence, post_sentence, prob_grad)
 
-        -- The gradient for encoder is the sum of gradient calculated from pre and post sentences
-        local pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
+        local encoder_output_grads
         encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
-        local post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
         encoder_output_grads:add(post_encoder_output_grads)
 
-        if encoder_output_grads ~= nil then
-          local encode_grad = self.encoder:backward(embedding_sentence, encoder_output_grads)
-        end
-        ::continue::
-      end
-      train_loss = train_loss + loss
+        self:encoder_backward(embedding_sentence, encoder_output_grads)
 
-      loss = loss / batch_size
-      print('Loss:', loss)
+        ::continue::
+      end -- Finished
+      train_loss = train_loss + loss
+      -- loss = loss / batch_size
+      -- print('Loss:', loss)
       self.grad_params:div(batch_size)
 
       -- Gradient clipping:
@@ -264,15 +239,162 @@ function SkipThought:train(dataset, corpus)
 
       return loss, self.grad_params
     end
-    -- optim.rmsprop(feval, self.params, self.optim_state)
-    optim.adam(feval, self.params, self.optim_state)
-
+    optim.rmsprop(feval, self.params, self.optim_state)
+    -- optim.adam(feval, self.params, self.optim_state)
   end
 
   train_loss = train_loss/dataset.size
   xlua.progress(dataset.size, dataset.size)
   print('Training loss', train_loss)
   return train_loss
+end
+
+function SkipThought:encoder_forward(embedding_sentence)
+  local encode_result = self.encoder:forward(embedding_sentence)
+  local output_for_decoder
+  if self.encoder.num_layers>1 then
+    if string.starts(self.encoder.structure,'bi') then
+      -- Case: more than one layer, bi-direction
+      local outputs_forward = encode_result[1]
+      local outputs_backward = encode_result[2]
+      local output_forward_flatten = {}
+      local output_backward_flatten = {}
+      for l = 1, self.encoder.num_layers do
+        if l ==1 then
+          output_forward_flatten = outputs_forward[l]
+          output_backward_flatten = outputs_backward[l]
+        else
+          output_forward_flatten = torch.cat(output_forward_flatten,
+            outputs_forward[l], 1)
+          output_backward_flatten = torch.cat(output_backward_flatten,
+            outputs_backward[l], 1)
+        end
+      end
+      output_for_decoder = torch.cat(output_forward_flatten, output_backward_flatten, 1)
+    else -- Case: more than one layer, single direction
+      for l = 1, self.encoder.num_layers do
+        local output_for_current_layer = encode_result[l]
+        if l ==1 then
+          output_for_decoder = output_for_current_layer
+        else
+          output_for_decoder = torch.cat(output_for_decoder,output_for_current_layer, 1)
+        end
+      end
+    end
+  else
+    if string.starts(self.encoder.structure,'bi') then
+      -- Case: one layer, bi-direction
+      output_for_decoder = torch.cat(encode_result[1], encode_result[2], 1)
+    else
+      output_for_decoder = encode_result
+    end
+  end
+  return output_for_decoder
+end
+
+function SkipThought:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+  local pre_decoder_result = self.decoder_pre:forward(pre_sentence,output_for_decoder)
+  local post_decoder_result = self.decoder_post:forward(post_sentence,output_for_decoder)
+
+  local decoder_result
+  local pre_decoder_result_size, post_decoder_result_size
+  if self.decoder_num_layers>1 then
+    local pre_decoder_output_flatten = torch.zeros(pre_sentence:size(1),
+      self.decoder_num_layers*self.decoder_hidden_dim)
+    for t = 1, pre_sentence:size(1) do
+      local output_current_time = pre_decoder_result:select(1, t)
+      output_current_time = output_current_time:view(output_current_time:nElement())
+      pre_decoder_output_flatten[t] = output_current_time
+    end
+
+    local post_decoder_output_flatten = torch.zeros(post_sentence:size(1),
+      self.decoder_num_layers*self.decoder_hidden_dim)
+    for t = 1, post_sentence:size(1) do
+      local output_current_time = post_decoder_result:select(1, t)
+      output_current_time = output_current_time:view(output_current_time:nElement())
+      post_decoder_output_flatten[t] = output_current_time
+    end
+
+    -- Concatenate the decoder output from pre and post sentences
+    -- as the input for the probability module
+    decoder_result = torch.cat(pre_decoder_output_flatten, post_decoder_output_flatten, 1)
+  else -- Case: self.decoder_num_layers == 1
+    decoder_result = torch.cat(pre_decoder_result, post_decoder_result, 1)
+  end
+  return decoder_result
+end
+
+function SkipThought:encoder_backward(embedding_sentence, encoder_output_grads)
+  local grad_input
+  if encoder_output_grads ~= nil then
+    if self.encoder_num_layers>1 then
+      local grad_for_encoder = {}
+      local grad_for_encoder_forward = {}
+      local grad_for_encoder_backward = {}
+
+      for l = 1, self.encoder_num_layers do
+        if string.starts(self.encoder_structure,'bi') then
+          grad_for_encoder_forward[l] = encoder_output_grads:narrow(1,
+            1 + (l-1)*self.encoder_hidden_dim, self.encoder_hidden_dim)
+          grad_for_encoder_backward[l] = encoder_output_grads:narrow(1,
+            1 + (l-1)*self.encoder_hidden_dim + self.encoder_num_layers*self.encoder_hidden_dim,
+            self.encoder_hidden_dim)
+        else
+          grad_for_encoder[l] = gradInput_cri:narrow(1, 1 + (l-1)*self.encoder_hidden_dim,
+            self.encoder_hidden_dim)
+        end
+      end
+      if string.starts(self.encoder_structure,'bi') then
+        grad_for_encoder = {grad_for_encoder_forward, grad_for_encoder_backward}
+      end  -- Finished assemble grad_for_encoder
+      grad_input = self.encoder:backward(embedding_sentence, grad_for_encoder)
+
+    else -- Case: self.encoder_num_layers == 1
+      local grad_for_encoder = {}
+      if string.starts(self.encoder_structure,'bi') then
+        grad_for_encoder = {encoder_output_grads:narrow(1, 1, self.encoder_hidden_dim),
+          encoder_output_grads:narrow(1, self.encoder_hidden_dim+1, self.encoder_hidden_dim)}
+        grad_input = self.encoder:backward(embedding_sentence, grad_for_encoder)
+      else
+        grad_input = self.encoder:backward(embedding_sentence, encoder_output_grads)
+      end
+    end
+  end
+  return grad_input
+end
+
+function SkipThought:decoder_backward(pre_sentence, post_sentence, prob_grad)
+  local pre_prob_grad, post_prob_grad
+  pre_prob_grad = prob_grad:narrow(1, 1, pre_sentence:size(1))
+  post_prob_grad = prob_grad:narrow(1, pre_sentence:size(1)+1,
+    post_sentence:size(1))
+
+  local pre_decoder_input_grad, pre_encoder_output_grads
+  local post_decoder_input_grad, post_encoder_output_grads
+  if self.decoder_hidden_dim>1 then
+    local gradInput_for_pre_decoder = torch.zeros(pre_sentence:size(1),
+      self.decoder_num_layers, self.decoder_hidden_dim)
+    for t = 1, pre_sentence:size(1) do
+      local gradInput_current_time = pre_prob_grad:select(1,t)
+      gradInput_current_time = gradInput_current_time:resize(self.decoder_num_layers, self.decoder_hidden_dim)
+      gradInput_for_pre_decoder[t] = gradInput_current_time
+    end
+    pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, gradInput_for_pre_decoder)
+
+    local gradInput_for_post_decoder = torch.zeros(post_sentence:size(1),
+      self.decoder_num_layers, self.decoder_hidden_dim)
+    for t = 1, post_sentence:size(1) do
+      local gradInput_current_time = post_prob_grad:select(1,t)
+      gradInput_current_time = gradInput_current_time:resize(self.decoder_num_layers, self.decoder_hidden_dim)
+      gradInput_for_post_decoder[t] = gradInput_current_time
+    end
+    post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, gradInput_for_post_decoder)
+
+  else -- Case: self.decoder_num_layers == 1
+    pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
+    post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
+  end
+  return pre_encoder_output_grads, post_encoder_output_grads
 end
 
 function SkipThought:print_config()
