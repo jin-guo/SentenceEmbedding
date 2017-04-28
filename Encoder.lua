@@ -1,4 +1,4 @@
-local Encoder, parent = torch.class('SentenceEmbedding.Encoder', 'nn.Module')
+local Encoder, parent = torch.class('sentenceembedding.Encoder', 'nn.Module')
 
 function Encoder:__init(config)
   parent.__init(self)
@@ -20,20 +20,20 @@ function Encoder:__init(config)
   }
 
   if self.structure == 'lstm' then
-    self.rnn = SentenceEmbedding.LSTM(rnn_config)
+    self.rnn = sentenceembedding.LSTM(rnn_config)
   elseif self.structure == 'bilstm' then
-    self.rnn = SentenceEmbedding.LSTM(rnn_config)
-    self.rnn_b = SentenceEmbedding.LSTM(rnn_config) -- backward RNN
+    self.rnn = sentenceembedding.LSTM(rnn_config)
+    self.rnn_b = sentenceembedding.LSTM(rnn_config) -- backward RNN
   elseif self.structure == 'irnn' then
-    self.rnn = SentenceEmbedding.IRNN(rnn_config)
+    self.rnn = sentenceembedding.IRNN(rnn_config)
   elseif self.structure == 'birnn' then
-    self.rnn = SentenceEmbedding.IRNN(rnn_config)
-    self.rnn_b = SentenceEmbedding.IRNN(rnn_config) -- backward RNN
+    self.rnn = sentenceembedding.IRNN(rnn_config)
+    self.rnn_b = sentenceembedding.IRNN(rnn_config) -- backward RNN
   elseif self.structure == 'gru' then
-    self.rnn = SentenceEmbedding.GRU(rnn_config)
+    self.rnn = sentenceembedding.GRU(rnn_config)
   elseif self.structure == 'bigru' then
-    self.rnn = SentenceEmbedding.GRU(rnn_config)
-    self.rnn_b = SentenceEmbedding.GRU(rnn_config) -- backward RNN
+    self.rnn = sentenceembedding.GRU(rnn_config)
+    self.rnn_b = sentenceembedding.GRU(rnn_config) -- backward RNN
   else
     error('invalid RNN type: ' .. self.structure)
   end
@@ -113,3 +113,5 @@ function Encoder:forget()
     self.rnn_b:forget()
   end
 end
+
+return Encoder

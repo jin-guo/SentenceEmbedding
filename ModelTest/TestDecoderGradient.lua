@@ -1,4 +1,6 @@
 require('..')
+package.path = package.path .. ";./test/CheckGradient.lua"
+require('CheckGradient')
 
 function create_decoder(i_dim, h_dim, n_layers, encoder_out_dim_real)
   ------------------------------------------------------------------------------
@@ -11,7 +13,7 @@ function create_decoder(i_dim, h_dim, n_layers, encoder_out_dim_real)
     num_layers      = n_layers
   }
 
-  model = SentenceEmbedding.GRUDecoder(decoder_config)
+  model = sentenceembedding.GRUDecoder(decoder_config)
   local linear_model = nn.Linear(n_layers*h_dim, i_dim)
   ------------------------------------------------------------------------------
   -- LOSS FUNCTION

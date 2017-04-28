@@ -4,7 +4,7 @@
 
 --]]
 
-local GRUDecoder, parent = torch.class('SentenceEmbedding.GRUDecoder', 'nn.Module')
+local GRUDecoder, parent = torch.class('sentenceembedding.GRUDecoder', 'nn.Module')
 
 function GRUDecoder:__init(config)
   parent.__init(self)
@@ -221,3 +221,5 @@ function GRUDecoder:forget()
     end
   end
 end
+
+return GRUDecoder

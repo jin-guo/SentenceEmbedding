@@ -1,4 +1,4 @@
-local SkipThought = torch.class('SentenceEmbedding.SkipThought')
+local SkipThought = torch.class('sentenceembedding.SkipThought')
 
 function SkipThought:__init(config)
   self.encoder_hidden_dim    = config.encoder_hidden_dim    or 50
@@ -39,7 +39,7 @@ function SkipThought:__init(config)
     emb_vecs   = self.emb_vecs,
     structure  = self.encoder_structure
   }
-  self.encoder = SentenceEmbedding.Encoder(encoder_config)
+  self.encoder = sentenceembedding.Encoder(encoder_config)
 
   -- initialize Decoder model
   local encoder_out_dim_real
@@ -55,8 +55,8 @@ function SkipThought:__init(config)
     num_layers      = self.decoder_num_layers
   }
 
-  self.decoder_pre  = SentenceEmbedding.GRUDecoder(decoder_config)
-  self.decoder_post = SentenceEmbedding.GRUDecoder(decoder_config)
+  self.decoder_pre  = sentenceembedding.GRUDecoder(decoder_config)
+  self.decoder_post = sentenceembedding.GRUDecoder(decoder_config)
 
   -- initialize Probability model
   self.prob_module = nn.Sequential()
@@ -110,7 +110,8 @@ function SkipThought:train(dataset, corpus)
       local batch_loss = 0
       -- For each datapoint in current batch
       for j = 1, batch_size do
-        local idx = indices[i + j - 1]
+        -- local idx = indices[i + j - 1]
+        local idx = i + j - 1
 
         local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         -- load sentence tuple for the current training data point from the corpus
@@ -439,7 +440,9 @@ end
 
 function SkipThought.load(path)
   local state = torch.load(path)
-  local model = SentenceEmbedding.SkipThought.new(state.config)
+  local model = sentenceembedding.SkipThought.new(state.config)
   model.params:copy(state.params)
   return model
 end
+
+return SkipThought

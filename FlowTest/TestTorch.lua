@@ -3,12 +3,12 @@ require('..')
 
 -- load embeddings
 print('Loading word embeddings')
-local vocab = SentenceEmbedding.Vocab('/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/artifact/symbol/' .. 'vocab_ptc_artifact_clean.txt')
+local vocab = sentenceembedding.Vocab('/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/artifact/symbol/' .. 'vocab_ptc_artifact_clean.txt')
 
 local emb_file_name = 'wiki_ptc_symbol_300d_w10_i10_word2vec'
 local emb_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/data/wordembedding/'
 local emb_prefix = emb_dir .. emb_file_name
-local emb_vocab, emb_vecs = SentenceEmbedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
+local emb_vocab, emb_vecs = sentenceembedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
 local emb_dim
 for i, vec in ipairs(emb_vecs) do
   emb_dim = vec:size(1)
@@ -38,7 +38,7 @@ collectgarbage()
 
 -- Read corpus and map each sentence to the index of the vocab
 local corpus={}
-corpus.sentences = SentenceEmbedding.read_sentences('/Users/Jinguo/Dropbox/LS_LC/Project/TSE/Data/sentence.txt', vocab)
+corpus.sentences = sentenceembedding.read_sentences('/Users/Jinguo/Dropbox/LS_LC/Project/TSE/Data/sentence.txt', vocab)
 
 for i = 1, #corpus.sentences do
   local sentence = corpus.sentences[i]
@@ -84,9 +84,9 @@ prob_module = nn.Sequential()
   :add(nn.Linear(decoder_config.hidden_dim, vecs:size(1)))
   :add(nn.LogSoftMax())
 
-encoder = SentenceEmbedding.Encoder(encoder_config)
-decoder_pre  = SentenceEmbedding.GRUDecoder(decoder_config)
-decoder_post = SentenceEmbedding.GRUDecoder(decoder_config)
+encoder = sentenceembedding.Encoder(encoder_config)
+decoder_pre  = sentenceembedding.GRUDecoder(decoder_config)
+decoder_post = sentenceembedding.GRUDecoder(decoder_config)
 
 -- For getting all the parameters for the SkipThought model
 st_modules = {}

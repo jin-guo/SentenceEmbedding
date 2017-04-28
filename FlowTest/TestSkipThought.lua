@@ -14,7 +14,7 @@ Training script for semantic relatedness prediction on the TRACE dataset.
   --encoder_type   (default bigru)           Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
-  -e,--epochs (default 50)                 Number of training epochs
+  -e,--epochs (default 100)                 Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
   -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
   -c,--grad_clip (default 1)             Gradient clip threshold
@@ -25,15 +25,15 @@ Training script for semantic relatedness prediction on the TRACE dataset.
   -p,--progress_output (default 'progress') Name of the progress output file
 ]]
 
-SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
-SentenceEmbedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
+sentenceembedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
+sentenceembedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
 -- load embeddings
 print('Loading word embeddings')
-local vocab = SentenceEmbedding.Vocab(SentenceEmbedding.data_dir..'healthIT_Vocab.txt')
+local vocab = sentenceembedding.Vocab(sentenceembedding.data_dir..'healthIT_Vocab.txt')
 local emb_file_name = args.wordembedding_name --'wiki_ptc_symbol_300d_w10_i10_word2vec'
-local emb_dir = SentenceEmbedding.data_dir ..'wordembedding/'
+local emb_dir = sentenceembedding.data_dir ..'wordembedding/'
 local emb_prefix = emb_dir .. emb_file_name
-local emb_vocab, emb_vecs = SentenceEmbedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
+local emb_vocab, emb_vecs = sentenceembedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
 local emb_dim
 for i, vec in ipairs(emb_vecs) do
   emb_dim = vec:size(1)
@@ -63,17 +63,17 @@ collectgarbage()
 
 -- Read corpus and map each word in sentence to the index of the vocab
 local corpus={}
-corpus = SentenceEmbedding.read_corpus(SentenceEmbedding.data_dir, vocab)
+corpus = sentenceembedding.read_corpus(sentenceembedding.data_dir, vocab)
 print('# of sentences in corpus:' .. #corpus.sentences)
 
 
 -- Create dataset from the corpus
 local dataset = {}
-dataset = SentenceEmbedding.read_skipthough_dataset(SentenceEmbedding.data_dir)
+dataset = sentenceembedding.read_skipthough_dataset(sentenceembedding.data_dir)
 print('Data points in total:' .. #dataset.embedding_sentence)
 
 
-local model_class = SentenceEmbedding.SkipThought
+local model_class = sentenceembedding.SkipThought
 local model = model_class{
   emb_vecs             = vecs,
   encoder_hidden_dim   = args.encoder_dim,
@@ -107,6 +107,6 @@ for i = 1, num_epochs do
   printf('-- train loss: %.4f\n', train_loss)
 end
 
-local model_save_path = SentenceEmbedding.models_dir .. '_1.model'
+local model_save_path = sentenceembedding.models_dir .. 'training_1.model'
 print('writing model to ' .. model_save_path)
 model:save(model_save_path)

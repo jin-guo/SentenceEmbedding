@@ -4,7 +4,7 @@
 
 --]]
 
-local GRU, parent = torch.class('SentenceEmbedding.GRU', 'nn.Module')
+local GRU, parent = torch.class('sentenceembedding.GRU', 'nn.Module')
 
 function GRU:__init(config)
   parent.__init(self)
@@ -201,3 +201,5 @@ function GRU:forget()
     end
   end
 end
+
+return GRU

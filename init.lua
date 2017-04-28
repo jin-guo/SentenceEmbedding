@@ -8,20 +8,19 @@ require('lfs')
 -- require('cutorch')
 -- require('cunn')
 
-SentenceEmbedding = {}
+sentenceembedding = {}
 
-include('models/Encoder.lua')
-include('models/GRU.lua')
-include('models/GRUDecoder.lua')
-include('SkipThought/SkipThought.lua')
-include('util/read_data.lua')
-include('util/Vocab.lua')
-include('test/CheckGradient.lua')
+include('Encoder.lua')
+include('GRU.lua')
+include('GRUDecoder.lua')
+include('SkipThought.lua')
+include('read_data.lua')
+include('Vocab.lua')
 
 printf = utils.printf
 
 -- global paths (modify if desired)
-SentenceEmbedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data'
+sentenceembedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data'
 
 -- tracenn.output = '/Users/Jinguo/Dropbox/TraceNN_experiment/tracenn/'
 -- tracenn.data_dir        = tracenn.output .. 'data/'
@@ -56,3 +55,5 @@ end
 function string.starts(String,Start)
    return string.sub(String,1,string.len(Start))==Start
 end
+
+return sentenceembedding

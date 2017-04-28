@@ -27,7 +27,7 @@ function encoderTest()
     {1,1,1,1,1,1,1,1,1,1}
   })
 
-  local encoder = SentenceEmbedding.Encoder(config)
+  local encoder = sentenceembedding.Encoder(config)
   local forward_result = encoder:forward(sentence)
   print(forward_result)
   local backward_result = encoder:backward(sentence, gradOutputs)
@@ -62,7 +62,7 @@ function decoderTest(encoderOut)
     {1,1,1,1,1,1,1,1,1,1}
   })
 
-  local decoder = SentenceEmbedding.GRUDecoder(config)
+  local decoder = sentenceembedding.GRUDecoder(config)
   local forward_result = decoder:forward(sentence, encoderOut)
   print(forward_result)
   local backward_result = decoder:backward(sentence, gradOutputs)

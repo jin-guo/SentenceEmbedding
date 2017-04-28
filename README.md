@@ -1,1 +1,1 @@
-# SentenceEmbedding
+# sentenceembedding

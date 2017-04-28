@@ -1,4 +1,6 @@
 require('..')
+package.path = package.path .. ";./test/CheckGradient.lua"
+require('CheckGradient')
 
 function create_encoder(i_dim, h_dim, n_layers, rnn_type)
   ------------------------------------------------------------------------------
@@ -13,7 +15,7 @@ function create_encoder(i_dim, h_dim, n_layers, rnn_type)
     emb_vecs   = vecs,
     structure  = rnn_type
   }
-  model = SentenceEmbedding.Encoder(encoder_config)
+  model = sentenceembedding.Encoder(encoder_config)
 
   ------------------------------------------------------------------------------
   -- LOSS FUNCTION
