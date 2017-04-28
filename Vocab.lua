@@ -7,7 +7,7 @@ token.
 
 --]]
 
-local Vocab = torch.class('SentenceEmbedding.Vocab')
+local Vocab = torch.class('sentenceembedding.Vocab')
 
 function Vocab:__init(path)
   self.size = 0

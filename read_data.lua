@@ -3,15 +3,15 @@
   Functions for loading data from disk.
 
 --]]
-function SentenceEmbedding.read_embedding(vocab_path, emb_path)
-  local vocab = SentenceEmbedding.Vocab(vocab_path)
+function sentenceembedding.read_embedding(vocab_path, emb_path)
+  local vocab = sentenceembedding.Vocab(vocab_path)
   local embedding = torch.load(emb_path)
   return vocab, embedding
 end
 
 -- Read each sentences from the input file located in path
 -- Map each token in sentence to the index of the vocab
-function SentenceEmbedding.read_sentences(path, vocab)
+function sentenceembedding.read_sentences(path, vocab)
   local sentences = {}
   local file = io.open(path, 'r')
   local line
@@ -34,10 +34,10 @@ function SentenceEmbedding.read_sentences(path, vocab)
   return sentences
 end
 
-function SentenceEmbedding.read_corpus(dir, vocab)
+function sentenceembedding.read_corpus(dir, vocab)
   local corpus = {}
   corpus.vocab = vocab
-  corpus.sentences = SentenceEmbedding.read_sentences(dir .. 'skipthough_sentence_content.txt', vocab)
+  corpus.sentences = sentenceembedding.read_sentences(dir .. 'skipthough_sentence_content.txt', vocab)
   local sentence_id_file = torch.DiskFile(dir .. 'skipthough_sentence_id.txt')
   corpus.ids = {}
   for i = 1, #corpus.sentences do
@@ -48,10 +48,10 @@ function SentenceEmbedding.read_corpus(dir, vocab)
 end
 
 
-function SentenceEmbedding.read_skipthough_dataset(dir)
+function sentenceembedding.read_skipthough_dataset(dir)
   local dataset = {}
   dataset.embedding_sentence = {}
-  local embedding_sentence_id_file = io.open(dir .. 'embedding_sentence_id.txt')
+  local embedding_sentence_id_file = io.open(dir .. 'embedding_sentence_id_test.txt')
   if embedding_sentence_id_file then
     for line in embedding_sentence_id_file:lines() do
       dataset.embedding_sentence[#dataset.embedding_sentence + 1] = line
@@ -59,7 +59,7 @@ function SentenceEmbedding.read_skipthough_dataset(dir)
   end
 
   dataset.pre_sentence = {}
-  local pre_sentence_id_file = io.open(dir .. 'pre_sentence_id.txt')
+  local pre_sentence_id_file = io.open(dir .. 'pre_sentence_id_test.txt')
   if pre_sentence_id_file then
     for line in pre_sentence_id_file:lines() do
       dataset.pre_sentence[#dataset.pre_sentence + 1] = line
@@ -67,7 +67,7 @@ function SentenceEmbedding.read_skipthough_dataset(dir)
   end
 
   dataset.post_sentence = {}
-  local post_sentence_id_file = io.open(dir .. 'post_sentence_id.txt')
+  local post_sentence_id_file = io.open(dir .. 'post_sentence_id_test.txt')
   if post_sentence_id_file then
     for line in post_sentence_id_file:lines() do
       dataset.post_sentence[#dataset.post_sentence + 1] = line

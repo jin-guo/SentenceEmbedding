@@ -1,4 +1,7 @@
 require('..')
+package.path = package.path .. ";./test/CheckGradient.lua"
+require('CheckGradient')
+
 --------------------------------------------------------------
 -- SETTINGS
 function create_gru(i_dim, h_dim, n_layers)
@@ -11,7 +14,7 @@ function create_gru(i_dim, h_dim, n_layers)
     num_layers = n_layers,
     gate_output = true
   }
-  model = SentenceEmbedding.GRU(gru_config)
+  model = sentenceembedding.GRU(gru_config)
 
   ------------------------------------------------------------------------------
   -- LOSS FUNCTION

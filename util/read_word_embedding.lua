@@ -2,8 +2,8 @@ require('init')
 
 opt = {
 	binfilename = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/wordEmbedding/healthIT_w10_50d_20iter.txt',
-	outVecs = SentenceEmbedding.data_dir .. '/wordembedding/healthIT_symbol_50d_w10_i20_word2vec.vecs',
-  outVocab = SentenceEmbedding.data_dir .. '/wordembedding/healthIT_symbol_50d_w10_i20_word2vec.vocab'
+	outVecs = sentenceembedding.data_dir .. '/wordembedding/healthIT_symbol_50d_w10_i20_word2vec.vecs',
+  outVocab = sentenceembedding.data_dir .. '/wordembedding/healthIT_symbol_50d_w10_i20_word2vec.vocab'
 }
 
 --Reading the size
