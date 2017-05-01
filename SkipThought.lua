@@ -110,57 +110,29 @@ function SkipThought:train(dataset, corpus)
       local batch_loss = 0
       -- For each datapoint in current batch
       for j = 1, batch_size do
-        -- local idx = indices[i + j - 1]
-        local idx = i + j - 1
+        local idx = indices[i + j - 1]
 
-        local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
         -- load sentence tuple for the current training data point from the corpus
-        if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
-          embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
-        else
-          print('Cannot find embedding sentence for current training '..
-            'data point:', dataset.embedding_sentence[idx])
-          break
+        local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+          self:load_input_sentences(idx, dataset, corpus)
+        if embedding_sentence_with_vocab_idx == nil or
+          pre_sentence_with_vocab_idx == nil or
+          post_sentence_with_vocab_idx == nil then
+            print('Sentence Loading error for index:')
+            print(idx)
+            goto continue
         end
 
-        if corpus.ids[dataset.pre_sentence[idx]]~= nil then
-          pre_sentence_with_vocab_idx =
-            corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
-        else
-          print('Cannot find the sentence before the embedding sentence for '..
-            'current training data point:', dataset.pre_sentence[idx])
-          break
-        end
-
-        if corpus.ids[dataset.post_sentence[idx]]~= nil then
-          post_sentence_with_vocab_idx =
-            corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
-          else
-          print('Cannot find the sentence after the embedding sentence for '..
-            'current training data point:', dataset.post_sentence[idx])
-          break
-        end
-
-        -- If any of the pre sentence or post sentence contains only the EOS token, skip this datapoint
-        if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
-          goto continue
-        end
-
-        -- Concatenate three sentences as input for the network,
-        -- and map the vocab index in those sentences to the embedding vectors.
-        -- For the decoder input, the last token (EOS) of pre and post sentence is removed from the input.
-        local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
-          pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
-        local forwardResult = self.input_module:forward(merged_index)
 
         -- Initialze each sentence with its token mapped to embedding vectors
-        local embedding_sentence, pre_sentence, post_sentence
-        embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
-        pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
-          pre_sentence_with_vocab_idx:size(1)-1)
-        post_sentence = forwardResult:narrow(1,
-          embedding_sentence_with_vocab_idx:size(1) + pre_sentence_with_vocab_idx:size(1),
-          post_sentence_with_vocab_idx:size(1)-1)
+        local embedding_sentence, pre_sentence, post_sentence =
+          self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
+          post_sentence_with_vocab_idx)
+
+        if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+          print('Sentence too short.')
+          goto continue
+        end
 
         -- Start the forward process
         local output_for_decoder = self:encoder_forward(embedding_sentence)
@@ -241,8 +213,65 @@ function SkipThought:train(dataset, corpus)
 
   train_loss = train_loss/dataset.size
   xlua.progress(dataset.size, dataset.size)
-  print('Training loss', train_loss)
+  -- print('Training loss', train_loss)
   return train_loss
+end
+
+function SkipThought:load_input_sentences(idx, dataset, corpus)
+  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
+  -- load sentence tuple for the current training data point from the corpus
+  if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
+    embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
+  else
+    print('Cannot find embedding sentence for current training '..
+      'data point:', dataset.embedding_sentence[idx])
+    return
+  end
+
+  if corpus.ids[dataset.pre_sentence[idx]]~= nil then
+    pre_sentence_with_vocab_idx =
+      corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
+  else
+    print('Cannot find the sentence before the embedding sentence for '..
+      'current training data point:', dataset.pre_sentence[idx])
+    return
+  end
+
+  if corpus.ids[dataset.post_sentence[idx]]~= nil then
+    post_sentence_with_vocab_idx =
+      corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
+    else
+    print('Cannot find the sentence after the embedding sentence for '..
+      'current training data point:', dataset.post_sentence[idx])
+    return
+  end
+  return embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
+end
+
+function SkipThought:input_module_forward(embedding_sentence_with_vocab_idx,
+  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx)
+  local embedding_sentence, pre_sentence, post_sentence
+  -- If any of the pre sentence or post sentence contains only the EOS token, skip this datapoint
+  if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
+    return
+  end
+
+  -- Concatenate three sentences as input for the network,
+  -- and map the vocab index in those sentences to the embedding vectors.
+  -- For the decoder input, the last token (EOS) of pre and post sentence is removed from the input.
+  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
+    pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
+  local forwardResult = self.input_module:forward(merged_index)
+
+  -- Initialze each sentence with its token mapped to embedding vectors
+  embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
+  pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
+    pre_sentence_with_vocab_idx:size(1)-1)
+  post_sentence = forwardResult:narrow(1,
+    embedding_sentence_with_vocab_idx:size(1) + pre_sentence_with_vocab_idx:size(1),
+    post_sentence_with_vocab_idx:size(1)-1)
+
+  return embedding_sentence, pre_sentence, post_sentence
 end
 
 function SkipThought:encoder_forward(embedding_sentence)
@@ -391,6 +420,51 @@ function SkipThought:decoder_backward(pre_sentence, post_sentence, prob_grad)
     post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
   end
   return pre_encoder_output_grads, post_encoder_output_grads
+end
+
+function SkipThought:calcluate_loss(dataset, corpus)
+  local total_loss = 0
+  for i = 1, dataset.size do
+    -- load sentence tuple for the current training data point from the corpus
+    local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+      self:load_input_sentences(i, dataset, corpus)
+    if embedding_sentence_with_vocab_idx == nil or
+      pre_sentence_with_vocab_idx == nil or
+      post_sentence_with_vocab_idx == nil then
+        print('Sentence Loading error for index:')
+        print(idx)
+        break
+    end
+
+
+    -- Initialze each sentence with its token mapped to embedding vectors
+    local embedding_sentence, pre_sentence, post_sentence =
+      self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
+      post_sentence_with_vocab_idx)
+
+    if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+      print('Sentence too short.')
+      break
+    end
+
+    -- Start the forward process
+    local output_for_decoder = self:encoder_forward(embedding_sentence)
+
+    -- Forward result to Decoder
+    local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+
+    local decoder_output = self.prob_module:forward(decoder_result)
+
+    -- Create the prediction target from the pre and post sentences
+    local pre_target, post_target
+    pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
+    post_target = post_sentence_with_vocab_idx:sub(2, -1)
+    local target = torch.cat(pre_target, post_target, 1)
+
+    local sentence_loss = self.criterion:forward(decoder_output, target)
+    total_loss = total_loss + sentence_loss
+  end
+  return total_loss/dataset.size
 end
 
 function SkipThought:print_config()

@@ -51,7 +51,7 @@ end
 function sentenceembedding.read_skipthough_dataset(dir)
   local dataset = {}
   dataset.embedding_sentence = {}
-  local embedding_sentence_id_file = io.open(dir .. 'embedding_sentence_id_test.txt')
+  local embedding_sentence_id_file = io.open(dir .. 'embedding_sentence_id.txt')
   if embedding_sentence_id_file then
     for line in embedding_sentence_id_file:lines() do
       dataset.embedding_sentence[#dataset.embedding_sentence + 1] = line
@@ -59,7 +59,7 @@ function sentenceembedding.read_skipthough_dataset(dir)
   end
 
   dataset.pre_sentence = {}
-  local pre_sentence_id_file = io.open(dir .. 'pre_sentence_id_test.txt')
+  local pre_sentence_id_file = io.open(dir .. 'pre_sentence_id.txt')
   if pre_sentence_id_file then
     for line in pre_sentence_id_file:lines() do
       dataset.pre_sentence[#dataset.pre_sentence + 1] = line
@@ -67,7 +67,7 @@ function sentenceembedding.read_skipthough_dataset(dir)
   end
 
   dataset.post_sentence = {}
-  local post_sentence_id_file = io.open(dir .. 'post_sentence_id_test.txt')
+  local post_sentence_id_file = io.open(dir .. 'post_sentence_id.txt')
   if post_sentence_id_file then
     for line in post_sentence_id_file:lines() do
       dataset.post_sentence[#dataset.post_sentence + 1] = line
