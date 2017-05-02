@@ -14,7 +14,7 @@ Training script for semantic relatedness prediction on the TRACE dataset.
   --encoder_type   (default bigru)           Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
-  -e,--epochs (default 100)                 Number of training epochs
+  -e,--epochs (default 3)                 Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
   -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
   -c,--grad_clip (default 1)             Gradient clip threshold
@@ -29,7 +29,7 @@ sentenceembedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoug
 sentenceembedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
 -- load embeddings
 print('Loading word embeddings')
-local vocab = sentenceembedding.Vocab(sentenceembedding.data_dir..'healthIT_Vocab.txt')
+local vocab = sentenceembedding.Vocab(sentenceembedding.data_dir..'HealthIT_Vocab.txt')
 local emb_file_name = args.wordembedding_name --'wiki_ptc_symbol_300d_w10_i10_word2vec'
 local emb_dir = sentenceembedding.data_dir ..'wordembedding/'
 local emb_prefix = emb_dir .. emb_file_name
@@ -140,7 +140,9 @@ for i = 1, num_epochs do
   local start = sys.clock()
   printf('-- epoch %d\n', i)
   printf('-- current learning rate %.10f\n', model.learning_rate)
+  printf('Start training model using training set for current epoch...\n')
   local train_loss = model:train(train_set, corpus)
+  printf('Start testing model for development set for current epoch...\n')
   local dev_loss = model:calcluate_loss(dev_set, corpus)
   printf('-- finished epoch in %.2fs\n', sys.clock() - start)
   printf('-- train loss: %.4f\n', train_loss)

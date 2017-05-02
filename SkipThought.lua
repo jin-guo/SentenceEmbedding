@@ -94,6 +94,7 @@ function SkipThought:train(dataset, corpus)
   self.encoder:training()
   self.decoder_pre:training()
   self.decoder_post:training()
+  self.prob_module:training()
 
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
@@ -423,8 +424,13 @@ function SkipThought:decoder_backward(pre_sentence, post_sentence, prob_grad)
 end
 
 function SkipThought:calcluate_loss(dataset, corpus)
+  self.encoder:evaluate()
+  self.decoder_pre:evaluate()
+  self.decoder_post:evaluate()
+  self.prob_module:evaluate()
   local total_loss = 0
   for i = 1, dataset.size do
+    xlua.progress(i, dataset.size)
     -- load sentence tuple for the current training data point from the corpus
     local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
       self:load_input_sentences(i, dataset, corpus)
@@ -464,6 +470,7 @@ function SkipThought:calcluate_loss(dataset, corpus)
     local sentence_loss = self.criterion:forward(decoder_output, target)
     total_loss = total_loss + sentence_loss
   end
+  xlua.progress(dataset.size, dataset.size)
   return total_loss/dataset.size
 end
 
