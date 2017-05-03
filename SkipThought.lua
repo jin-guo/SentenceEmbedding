@@ -428,56 +428,68 @@ function SkipThought:calcluate_loss(dataset, corpus)
   self.decoder_pre:evaluate()
   self.decoder_post:evaluate()
   self.prob_module:evaluate()
-  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
-  local embedding_sentence, pre_sentence, post_sentence
-  local output_for_decoder
-  local decoder_result
-  local decoder_output
-  local pre_target, post_target, target
-
   local total_loss = 0
+  local data_count = 0
   for i = 1, dataset.size do
     xlua.progress(i, dataset.size)
-    -- load sentence tuple for the current training data point from the corpus
-    embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
-      self:load_input_sentences(i, dataset, corpus)
-    if embedding_sentence_with_vocab_idx == nil or
-      pre_sentence_with_vocab_idx == nil or
-      post_sentence_with_vocab_idx == nil then
-        print('Sentence Loading error for index:')
-        print(idx)
-        break
+    local sentence_loss = self:calculate_loss_one_instance(i, dataset, corpus)
+    if sentence_loss ~= -1 then
+      total_loss = total_loss + sentence_loss
+      data_count = data_count + 1
     end
-
-
-    -- Initialze each sentence with its token mapped to embedding vectors
-    embedding_sentence, pre_sentence, post_sentence =
-      self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
-      post_sentence_with_vocab_idx)
-
-    if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
-      print('Sentence too short.')
-      break
-    end
-
-    -- Start the forward process
-    output_for_decoder = self:encoder_forward(embedding_sentence)
-
-    -- Forward result to Decoder
-    decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
-
-    decoder_output = self.prob_module:forward(decoder_result)
-
-    -- Create the prediction target from the pre and post sentences
-    pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
-    post_target = post_sentence_with_vocab_idx:sub(2, -1)
-    target = torch.cat(pre_target, post_target, 1)
-
-    local sentence_loss = self.criterion:forward(decoder_output, target)
-    total_loss = total_loss + sentence_loss
   end
   xlua.progress(dataset.size, dataset.size)
-  return total_loss/dataset.size
+  return total_loss/data_count
+end
+
+function SkipThought:calculate_loss_one_instance(idx, dataset, corpus)
+  -- load sentence tuple for the current training data point from the corpus
+  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+    self:load_input_sentences(idx, dataset, corpus)
+  if embedding_sentence_with_vocab_idx == nil or
+    pre_sentence_with_vocab_idx == nil or
+    post_sentence_with_vocab_idx == nil then
+      print('Sentence Loading error for index:')
+      print(idx)
+      return -1
+  end
+
+  -- Initialze each sentence with its token mapped to embedding vectors
+  local embedding_sentence, pre_sentence, post_sentence =
+    self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
+    post_sentence_with_vocab_idx)
+
+  if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+    print('Sentence too short.')
+    return -1
+  end
+
+  -- Start the forward process
+  local output_for_decoder = self:encoder_forward(embedding_sentence)
+
+  -- Forward result to Decoder
+  local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+
+  local decoder_output = self.prob_module:forward(decoder_result)
+
+  -- Create the prediction target from the pre and post sentences
+  local pre_target, post_target
+  pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
+  post_target = post_sentence_with_vocab_idx:sub(2, -1)
+  local target = torch.cat(pre_target, post_target, 1)
+
+  local sentence_loss = self.criterion:forward(decoder_output, target)
+  print('Sentence Loss:', sentence_loss)
+  -- Important: to clear the grad_input from the last forward step.
+  self.encoder:forget()
+  self.decoder_pre:forget()
+  self.decoder_post:forget()
+
+  self.encoder:clearState()
+  self.decoder_pre:clearState()
+  self.decoder_post:clearState()
+  self.prob_module:clearState()
+  return sentence_loss
 end
 
 function SkipThought:print_config()
