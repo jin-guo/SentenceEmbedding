@@ -428,11 +428,18 @@ function SkipThought:calcluate_loss(dataset, corpus)
   self.decoder_pre:evaluate()
   self.decoder_post:evaluate()
   self.prob_module:evaluate()
+  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
+  local embedding_sentence, pre_sentence, post_sentence
+  local output_for_decoder
+  local decoder_result
+  local decoder_output
+  local pre_target, post_target, target
+
   local total_loss = 0
   for i = 1, dataset.size do
     xlua.progress(i, dataset.size)
     -- load sentence tuple for the current training data point from the corpus
-    local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+    embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
       self:load_input_sentences(i, dataset, corpus)
     if embedding_sentence_with_vocab_idx == nil or
       pre_sentence_with_vocab_idx == nil or
@@ -444,7 +451,7 @@ function SkipThought:calcluate_loss(dataset, corpus)
 
 
     -- Initialze each sentence with its token mapped to embedding vectors
-    local embedding_sentence, pre_sentence, post_sentence =
+    embedding_sentence, pre_sentence, post_sentence =
       self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
       post_sentence_with_vocab_idx)
 
@@ -454,18 +461,17 @@ function SkipThought:calcluate_loss(dataset, corpus)
     end
 
     -- Start the forward process
-    local output_for_decoder = self:encoder_forward(embedding_sentence)
+    output_for_decoder = self:encoder_forward(embedding_sentence)
 
     -- Forward result to Decoder
-    local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+    decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
 
-    local decoder_output = self.prob_module:forward(decoder_result)
+    decoder_output = self.prob_module:forward(decoder_result)
 
     -- Create the prediction target from the pre and post sentences
-    local pre_target, post_target
     pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
     post_target = post_sentence_with_vocab_idx:sub(2, -1)
-    local target = torch.cat(pre_target, post_target, 1)
+    target = torch.cat(pre_target, post_target, 1)
 
     local sentence_loss = self.criterion:forward(decoder_output, target)
     total_loss = total_loss + sentence_loss
