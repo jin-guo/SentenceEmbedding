@@ -485,10 +485,6 @@ function SkipThought:calculate_loss_one_instance(idx, dataset, corpus)
   self.decoder_pre:forget()
   self.decoder_post:forget()
 
-  self.encoder:clearState()
-  self.decoder_pre:clearState()
-  self.decoder_post:clearState()
-  self.prob_module:clearState()
   return sentence_loss
 end
 
