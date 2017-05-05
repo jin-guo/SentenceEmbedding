@@ -8,25 +8,38 @@ require('..')
 
 -- read command line arguments
 local args = lapp [[
-Training script for semantic relatedness prediction on the TRACE dataset.
+Training script for SkipThought on the Domain Document dataset.
   --encoder_layers (default 1)           	 Number of layers for Encoder
-  --encoder_dim    (default 20)        	   Size of hidden dimension for Encoder
-  --encoder_type   (default bigru)           Model Type for Encoder
+  --encoder_dim    (default 50)        	   Size of hidden dimension for Encoder
+  --encoder_type   (default bigru)         Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
-  --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
-  -e,--epochs (default 3)                 Number of training epochs
+  --decoder_dim    (default 50)        	   Size of hidden dimension for Decoder
+  -e,--epochs (default 3)                  Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
   -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
-  -c,--grad_clip (default 1)             Gradient clip threshold
-  -g,--reg  (default 1.00e-05)             Regulation lamda
+  -c,--grad_clip (default 5)               Gradient clip threshold
+  -g,--reg  (default 1.00e-06)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
   -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
   -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
-  -p,--progress_output (default 'progress') Name of the progress output file
+  -p,--progress_output (default 'progress.txt') Name of the progress output file
+  -m,--model_output (default 'trained_skipthought.model') Name of the trained model
 ]]
 
 sentenceembedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
 sentenceembedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
+sentenceembedding.progress_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/progress/'
+
+if lfs.attributes(sentenceembedding.data_dir ) == nil then
+  lfs.mkdir(sentenceembedding.data_dir )
+end
+if lfs.attributes(sentenceembedding.models_dir) == nil then
+  lfs.mkdir(sentenceembedding.models_dir)
+end
+if lfs.attributes(sentenceembedding.progress_dir) == nil then
+  lfs.mkdir(sentenceembedding.progress_dir)
+end
+
 -- load embeddings
 print('Loading word embeddings')
 local vocab = sentenceembedding.Vocab(sentenceembedding.data_dir..'HealthIT_Vocab.txt')
@@ -72,6 +85,8 @@ local dataset = {}
 dataset = sentenceembedding.read_skipthough_dataset(sentenceembedding.data_dir)
 print('Data points in total:' .. #dataset.embedding_sentence)
 
+-- Randomly split dataset to training and development set.
+-- 1/k of the data goes to the development set, others to the training set
 function split_dataset(dataset, k)
   if k>10 or k<1 then
     print('K should be between 1 to 10 for splitting dataset. The current input of K is: ', k)
@@ -96,7 +111,6 @@ function split_dataset(dataset, k)
       dev_set.pre_sentence[i] = dataset.embedding_sentence[idx]
       dev_set.post_sentence[i] = dataset.embedding_sentence[idx]
     else
-      -- print('copy train set')
       -- Copy data in the rest buckets to training set.
       train_set.embedding_sentence[i-bucket_size] = dataset.embedding_sentence[idx]
       train_set.pre_sentence[i-bucket_size] = dataset.embedding_sentence[idx]
@@ -105,12 +119,16 @@ function split_dataset(dataset, k)
   end
   train_set.size = #train_set.embedding_sentence
   dev_set.size = #dev_set.embedding_sentence
-  print(train_set.size)
-  print(dev_set.size)
   return  train_set, dev_set
 end
 
+-- Initialze Progress writer
+local progress_output_file_name = sentenceembedding.progress_dir..args.progress_output
+local progress_writer = sentenceembedding.progress_writer{
+  progress_file_name = progress_output_file_name
+}
 
+-- Initialze SkipThought model
 local model_class = sentenceembedding.SkipThought
 local model = model_class{
   emb_vecs             = vecs,
@@ -122,9 +140,11 @@ local model = model_class{
   learning_rate        = args.learning_rate,
   batch_size           = args.batch_size,
   grad_clip            = args.grad_clip,
-  reg                  = args.reg
+  reg                  = args.reg,
+  progress_writer      = progress_writer
 }
 
+progress_writer:write_skiptought_model_config(model)
 
 -- Number of epochs to train
 local num_epochs = args.epochs
@@ -138,17 +158,34 @@ model:print_config()
 local train_set, dev_set = split_dataset(dataset, 10)
 for i = 1, num_epochs do
   local start = sys.clock()
+  print('----------------------------------------------------------------------\n')
   printf('-- epoch %d\n', i)
-  printf('-- current learning rate %.10f\n', model.learning_rate)
-  printf('Start training model using training set for current epoch...\n')
+  printf('-- current learning rate %.6e\n', model.learning_rate)
+  if model.learning_rate == 0 then
+    break
+  end
+  printf('Start training model...\n')
+  progress_writer:write_string(
+    string.format('** %s %d **\n',   'Starting Epoch', i))
+
   local train_loss = model:train(train_set, corpus)
-  printf('Start testing model for development set for current epoch...\n')
+  printf('Start validating model...\n')
   local dev_loss = model:calcluate_loss(dev_set, corpus)
   printf('-- finished epoch in %.2fs\n', sys.clock() - start)
   printf('-- train loss: %.4f\n', train_loss)
   printf('-- dev loss: %.4f\n', dev_loss)
-end
 
-local model_save_path = sentenceembedding.models_dir .. 'training_1.model'
+  progress_writer:write_string('***********************\n')
+  progress_writer:write_string(
+    string.format('%s %d in %.2f\n',   'Finished Epoch', i, sys.clock() - start))
+  progress_writer:write_string(
+    string.format('%s %.4f\n',   'Average Training Loss:', train_loss))
+  progress_writer:write_string(
+    string.format('%s %.4f\n',   'Average Development Loss:', dev_loss))
+  progress_writer:write_string('***********************\n')
+end
+progress_writer:close_file()
+
+local model_save_path = sentenceembedding.models_dir .. args.model_output
 print('writing model to ' .. model_save_path)
 model:save(model_save_path)

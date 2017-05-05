@@ -16,6 +16,7 @@ include('GRUDecoder.lua')
 include('SkipThought.lua')
 include('read_data.lua')
 include('Vocab.lua')
+include('progress_writer.lua')
 
 printf = utils.printf
 

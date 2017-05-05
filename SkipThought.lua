@@ -17,7 +17,13 @@ function SkipThought:__init(config)
   self.emb_dim = config.emb_vecs:size(2)
 
   -- optimizer configuration
-  self.optim_state = { learningRate = self.learning_rate }
+  self.optim_state =
+  { learningRate = self.learning_rate,
+    weightDecay = 1e-5
+  }
+
+  self.output_progress = config.output_progress or false
+  self.progress_writer = config.progress_writer
 
   -- Set Objective as minimize Negative Log Likelihood
   -- Remember to set the size_average to false to use the effect of weight!!
@@ -98,9 +104,36 @@ function SkipThought:train(dataset, corpus)
 
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
+  local data_count = 0
+  local average_progress_train_loss = 0
+  local average_count = 0
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
     local batch_size = math.min(i + self.batch_size - 1, dataset.size) - i + 1
+
+    self.learning_rate = 0.01*math.exp(-i*0.01)
+    -- Decay the learning rate every 500 epochs
+    if i%100 == 0 then
+      -- self.learning_rate = self.learning_rate*0.9
+      print('Current learning rate:', self.learning_rate)
+      self.progress_writer:write_string(
+        string.format('\t%s: %.6e\n',   'Current Learning Rate', self.learning_rate))
+      -- Stop training is the learning rate is decayed to zero
+      if self.learning_rate == 0 then
+        break
+      end
+    end
+
+    if i%50 == 0 then
+      if average_count>0 then
+        average_progress_train_loss = average_progress_train_loss/average_count
+        print('Training loss:', average_progress_train_loss)
+        self.progress_writer:write_string(
+          string.format('%s: %.4f\n',   'Training Loss', average_progress_train_loss))
+        average_progress_train_loss = 0
+        average_count = 0
+      end
+    end
 
     local feval = function(x)
       if x ~= self.params then
@@ -151,7 +184,10 @@ function SkipThought:train(dataset, corpus)
 
         local sentence_loss = self.criterion:forward(decoder_output, target)
         batch_loss = batch_loss + sentence_loss
-        print('sentence_loss:', sentence_loss)
+        data_count = data_count + 1
+        -- print('sentence_loss:', sentence_loss)
+        average_progress_train_loss = average_progress_train_loss + sentence_loss
+        average_count = average_count + 1
 
         -- Starting the backward process
         local sentence_grad = self.criterion:backward(decoder_output, target)
@@ -208,11 +244,11 @@ function SkipThought:train(dataset, corpus)
 
       return batch_loss, self.grad_params
     end
-    -- Works better than optim.adam
+    -- optim.adam(feval, self.params, self.optim_state)
     optim.rmsprop(feval, self.params, self.optim_state)
   end
 
-  train_loss = train_loss/dataset.size
+  train_loss = train_loss/data_count
   xlua.progress(dataset.size, dataset.size)
   -- print('Training loss', train_loss)
   return train_loss
@@ -479,7 +515,7 @@ function SkipThought:calculate_loss_one_instance(idx, dataset, corpus)
   local target = torch.cat(pre_target, post_target, 1)
 
   local sentence_loss = self.criterion:forward(decoder_output, target)
-  print('Sentence Loss:', sentence_loss)
+  -- print('Sentence Loss:', sentence_loss)
   -- Important: to clear the grad_input from the last forward step.
   self.encoder:forget()
   self.decoder_pre:forget()
@@ -491,18 +527,18 @@ end
 function SkipThought:print_config()
   print('Configurations for the Skip Thoughts Model')
   local num_params = self.params:nElement()
-  -- local num_sim_params = self:new_sim_module():getParameters():nElement()
+  printf('%-25s = %.2e\n', 'initial learning rate', self.learning_rate)
+  printf('%-25s = %d\n',   'minibatch size', self.batch_size)
+  printf('%-25s = %f\n',   'gradient clipping', self.grad_clip)
+  printf('%-25s = %.2e\n',  'regularization strength', self.reg)
+  printf('\n')
+  printf('%-25s = %d\n',   'Word Embedding dim', self.emb_dim)
+  printf('%-25s = %s\n',   'Encoder structure', self.encoder_structure)
+  printf('%-25s = %d\n',   'Encoder hidden dim', self.encoder_hidden_dim)
+  printf('%-25s = %d\n',   'Encoder # of layers', self.encoder_num_layers)
+  printf('%-25s = %d\n',   'Decoder hidden dim', self.decoder_hidden_dim)
+  printf('%-25s = %d\n',   'Decoder # of layers', self.decoder_num_layers)
   printf('%-25s = %d\n',   'num params', num_params)
-  -- printf('%-25s = %d\n',   'num compositional params', num_params - num_sim_params)
-  -- printf('%-25s = %d\n',   'word vector dim', self.emb_dim)
-  -- printf('%-25s = %d\n',   'RNN hidden dim', self.hidden_dim)
-  -- printf('%-25s = %.2e\n', 'regularization strength', self.reg)
-  -- printf('%-25s = %d\n',   'minibatch size', self.batch_size)
-  -- printf('%-25s = %.2e\n', 'learning rate', self.learning_rate)
-  -- printf('%-25s = %s\n',   'RNN structure', self.structure)
-  -- printf('%-25s = %d\n',   'RNN layers', self.num_layers)
-  -- printf('%-25s = %d\n',   'sim module hidden dim', self.sim_nhidden)
-  -- printf('%-25s = %d\n',   'Gradient clip', self.grad_clip)
 end
 
 
