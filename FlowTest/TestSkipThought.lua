@@ -14,21 +14,22 @@ Training script for SkipThought on the Domain Document dataset.
   --encoder_type   (default bigru)         Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 50)        	   Size of hidden dimension for Decoder
+  -u,--update_word_emb (default false)     Update word embedding flag
   -e,--epochs (default 3)                  Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
   -b,--batch_size (default 1)              Batch Size of training data point for each update of parameters
   -c,--grad_clip (default 5)               Gradient clip threshold
   -g,--reg  (default 1.00e-06)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
-  -o,--output_dir (default '/home/lslc/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
+  -o,--output_dir (default '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
   -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
   -p,--progress_output (default 'progress.txt') Name of the progress output file
   -m,--model_output (default 'trained_skipthought.model') Name of the trained model
 ]]
 
-sentenceembedding.data_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/data/'
-sentenceembedding.models_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/model/'
-sentenceembedding.progress_dir = '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/progress/'
+sentenceembedding.data_dir = args.output_dir .. 'data/'
+sentenceembedding.models_dir = args.output_dir .. 'model/'
+sentenceembedding.progress_dir = args.output_dir .. 'progress/'
 
 if lfs.attributes(sentenceembedding.data_dir ) == nil then
   lfs.mkdir(sentenceembedding.data_dir )
@@ -44,7 +45,7 @@ end
 print('Loading word embeddings')
 local vocab = sentenceembedding.Vocab(sentenceembedding.data_dir..'HealthIT_Vocab.txt')
 local emb_file_name = args.wordembedding_name --'wiki_ptc_symbol_300d_w10_i10_word2vec'
-local emb_dir = sentenceembedding.data_dir ..'wordembedding/'
+local emb_dir = sentenceembedding.data_dir ..'wordEmbedding/'
 local emb_prefix = emb_dir .. emb_file_name
 local emb_vocab, emb_vecs = sentenceembedding.read_embedding(emb_prefix .. '.vocab', emb_prefix .. '.vecs')
 local emb_dim
@@ -141,6 +142,7 @@ local model = model_class{
   batch_size           = args.batch_size,
   grad_clip            = args.grad_clip,
   reg                  = args.reg,
+  update_word_embedding= args.update_word_emb,
   progress_writer      = progress_writer
 }
 

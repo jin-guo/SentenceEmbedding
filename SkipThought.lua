@@ -22,6 +22,8 @@ function SkipThought:__init(config)
     weightDecay = 1e-5
   }
 
+  self.update_word_embedding = config.update_word_embedding or false
+
   self.output_progress = config.output_progress or false
   self.progress_writer = config.progress_writer
 
@@ -75,7 +77,11 @@ function SkipThought:__init(config)
     :add(self.decoder_pre)
     :add(self.decoder_post)
     :add(self.prob_module)
-    -- :add(self.input_module)
+
+  if self.update_word_embedding == 'true' or self.update_word_embedding == true then
+    modules:add(self.input_module)
+  end
+
   self.params, self.grad_params = modules:getParameters()
 
   -- Get the number of parameters for encoder
