@@ -1,5 +1,5 @@
 require('..')
-package.path = package.path .. ";./test/CheckGradient.lua"
+package.path = package.path .. ";./ModelTest/CheckGradient.lua"
 require('CheckGradient')
 
 function create_encoder(i_dim, h_dim, n_layers, rnn_type)

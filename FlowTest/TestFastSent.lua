@@ -9,23 +9,15 @@ require('..')
 -- read command line arguments
 local args = lapp [[
 Training script for SkipThought on the Domain Document dataset.
-  --encoder_layers (default 1)           	 Number of layers for Encoder
-  --encoder_dim    (default 20)        	   Size of hidden dimension for Encoder
-  --encoder_type   (default bigru)         Model Type for Encoder
-  --decoder_layers (default 1)           	 Number of layers for Decoder
-  --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
-  -u,--update_word_emb (default true)     Update word embedding flag
-  -e,--epochs (default 50)                 Number of training epochs
-  -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
-  -d,--learning_rate_decay (default true)  Learning Rate Decay Flag
-  -b,--batch_size (default 50)             Batch Size of training data point for each update of parameters
-  -c,--grad_clip (default 5)               Gradient clip threshold
+  -e,--epochs (default 100)                  Number of training epochs
+  -r,--learning_rate (default 1.00e-03)    Learning Rate during Training NN Model
+  -b,--batch_size (default 50)              Batch Size of training data point for each update of parameters
   -g,--reg  (default 1.00e-06)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
   -o,--output_dir (default '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
   -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
-  -p,--progress_output (default 'progress.txt') Name of the progress output file
-  -m,--model_output (default 'trained_skipthought.model') Name of the trained model
+  -p,--progress_output (default 'fastsent_progress.txt') Name of the progress output file
+  -m,--model_output (default 'trained_fastsent.model') Name of the trained model
 ]]
 
 sentenceembedding.data_dir = args.output_dir .. 'data/'
@@ -131,23 +123,17 @@ local progress_writer = sentenceembedding.progress_writer{
 }
 
 -- Initialze SkipThought model
-local model_class = sentenceembedding.SkipThought
+local model_class = sentenceembedding.FastSent
 local model = model_class{
   emb_vecs             = vecs,
-  encoder_hidden_dim   = args.encoder_dim,
-  encoder_num_layers   = args.encoder_layers,
-  encoder_structure    = args.encoder_type,
-  decoder_hidden_dim   = args.decoder_dim,
-  decoder_num_layers   = args.decoder_layers,
   learning_rate        = args.learning_rate,
   batch_size           = args.batch_size,
   grad_clip            = args.grad_clip,
   reg                  = args.reg,
-  update_word_embedding= args.update_word_emb,
   progress_writer      = progress_writer
 }
 
-progress_writer:write_skiptought_model_config(model)
+progress_writer:write_fastsent_model_config(model)
 
 -- Number of epochs to train
 local num_epochs = args.epochs
@@ -186,9 +172,6 @@ for i = 1, num_epochs do
   progress_writer:write_string(
     string.format('%s %.4f\n',   'Average Development Loss:', dev_loss))
   progress_writer:write_string('***********************\n')
-  if args.learning_rate_decay == true or args.learning_rate_decay == 'true' then
-    model.learning_rate = model.learning_rate*0.1
-  end
 end
 progress_writer:close_file()
 

@@ -23,6 +23,18 @@ function progress_writer:write_skiptought_model_config(model)
 
 end
 
+function progress_writer:write_fastsent_model_config(model)
+  self.progress_file:write('--------------------------Model Configuration:--------------------------\n')
+  self.progress_file:write(string.format('%-25s = %.2e\n', 'initial learning rate', model.learning_rate))
+  self.progress_file:write(string.format('%-25s = %d\n',   'minibatch size', model.batch_size))
+  self.progress_file:write(string.format('%-25s = %f\n',   'gradient clipping', model.grad_clip))
+  self.progress_file:write(string.format('%-25s = %.2e\n',  'regularization strength', model.reg))
+  self.progress_file:write('\n')
+  self.progress_file:write(string.format('%-25s = %d\n',   'Word Embedding dim', model.emb_dim))
+  self.progress_file:write('------------------------------------------------------------------------\n')
+
+end
+
 function progress_writer:write_string(string_to_write)
   self.progress_file:write(string_to_write)
 end

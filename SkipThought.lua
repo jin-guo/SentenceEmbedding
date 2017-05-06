@@ -7,10 +7,12 @@ function SkipThought:__init(config)
   self.decoder_hidden_dim    = config.decoder_hidden_dim    or 50
   self.decoder_num_layers    = config.decoder_num_layers    or 1
 
+  self.init_learning_rate = config.learning_rate or 0.0001
   self.learning_rate = config.learning_rate or 0.0001
   self.batch_size    = config.batch_size    or 10
   self.reg           = config.reg           or 0
   self.grad_clip     = config.grad_clip     or 10
+  self.current_epoch = 1
 
   -- word embedding
   self.emb_vecs = config.emb_vecs
@@ -111,35 +113,9 @@ function SkipThought:train(dataset, corpus)
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
   local data_count = 0
-  local average_progress_train_loss = 0
-  local average_count = 0
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
     local batch_size = math.min(i + self.batch_size - 1, dataset.size) - i + 1
-
-    self.learning_rate = 0.01*math.exp(-i*0.01)
-    -- Decay the learning rate every 500 epochs
-    if i%100 == 0 then
-      -- self.learning_rate = self.learning_rate*0.9
-      print('Current learning rate:', self.learning_rate)
-      self.progress_writer:write_string(
-        string.format('\t%s: %.6e\n',   'Current Learning Rate', self.learning_rate))
-      -- Stop training is the learning rate is decayed to zero
-      if self.learning_rate == 0 then
-        break
-      end
-    end
-
-    if i%50 == 0 then
-      if average_count>0 then
-        average_progress_train_loss = average_progress_train_loss/average_count
-        print('Training loss:', average_progress_train_loss)
-        self.progress_writer:write_string(
-          string.format('%s: %.4f\n',   'Training Loss', average_progress_train_loss))
-        average_progress_train_loss = 0
-        average_count = 0
-      end
-    end
 
     local feval = function(x)
       if x ~= self.params then
@@ -192,8 +168,6 @@ function SkipThought:train(dataset, corpus)
         batch_loss = batch_loss + sentence_loss
         data_count = data_count + 1
         -- print('sentence_loss:', sentence_loss)
-        average_progress_train_loss = average_progress_train_loss + sentence_loss
-        average_count = average_count + 1
 
         -- Starting the backward process
         local sentence_grad = self.criterion:backward(decoder_output, target)
@@ -207,12 +181,20 @@ function SkipThought:train(dataset, corpus)
         encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
         encoder_output_grads:add(post_encoder_output_grads)
 
-        self:encoder_backward(embedding_sentence, encoder_output_grads)
+        local encoder_input_grads = self:encoder_backward(embedding_sentence, encoder_output_grads)
+
+        if self.update_word_embedding == 'true' or self.update_word_embedding == true then
+          self:input_module_backward(embedding_sentence_with_vocab_idx,
+            pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
+            embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
+        end
 
         ::continue::
       end -- Finished
       train_loss = train_loss + batch_loss
-
+      print('Batch loss:', batch_loss/batch_size)
+      self.progress_writer:write_string(
+        string.format('%s: %.4f\n',   'Batch Loss', batch_loss/batch_size))
       self.grad_params:div(batch_size)
 
       -- Gradient clipping:
@@ -257,6 +239,7 @@ function SkipThought:train(dataset, corpus)
   train_loss = train_loss/data_count
   xlua.progress(dataset.size, dataset.size)
   -- print('Training loss', train_loss)
+  self.current_epoch = self.current_epoch + 1
   return train_loss
 end
 
@@ -315,6 +298,18 @@ function SkipThought:input_module_forward(embedding_sentence_with_vocab_idx,
     post_sentence_with_vocab_idx:size(1)-1)
 
   return embedding_sentence, pre_sentence, post_sentence
+end
+
+function SkipThought:input_module_backward(embedding_sentence_with_vocab_idx,
+  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
+  embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
+  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
+    pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
+  local grad_for_input_model = torch.zeros(merged_index:size(1), encoder_input_grads:size(2))
+  for i=1, encoder_input_grads:size(1) do
+    grad_for_input_model[i] = encoder_input_grads[i]
+  end
+  self.input_module:backward(merged_index, grad_for_input_model)
 end
 
 function SkipThought:encoder_forward(embedding_sentence)

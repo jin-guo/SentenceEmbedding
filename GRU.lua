@@ -52,11 +52,11 @@ function GRU:new_cell()
 
     local new_gate = function()
       local in_module = (layer == 1)
-        and nn.Linear(self.in_dim, self.hidden_dim)(input)
-        or  nn.Linear(self.hidden_dim, self.hidden_dim)(htable[layer - 1])
+        and nn.LinearO(self.in_dim, self.hidden_dim)(input)
+        or  nn.LinearO(self.hidden_dim, self.hidden_dim)(htable[layer - 1])
       return nn.CAddTable(){
         in_module,
-        nn.Linear(self.hidden_dim, self.hidden_dim)(h_p)
+        nn.LinearO(self.hidden_dim, self.hidden_dim)(h_p)
       }
     end
 
@@ -65,12 +65,12 @@ function GRU:new_cell()
     local r = nn.Sigmoid()(new_gate())
 
     local in_module = (layer == 1)
-      and nn.Linear(self.in_dim, self.hidden_dim)(input)
-      or  nn.Linear(self.hidden_dim, self.hidden_dim)(htable[layer - 1])
+      and nn.LinearO(self.in_dim, self.hidden_dim)(input)
+      or  nn.LinearO(self.hidden_dim, self.hidden_dim)(htable[layer - 1])
 
     local h_candidate = nn.Tanh()(nn.CAddTable(){
       in_module,
-      nn.Linear(self.hidden_dim, self.hidden_dim)(nn.CMulTable(){r, h_p})
+      nn.LinearO(self.hidden_dim, self.hidden_dim)(nn.CMulTable(){r, h_p})
     })
 
     local interposition_part_one =

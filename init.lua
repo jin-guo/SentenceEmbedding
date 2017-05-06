@@ -17,6 +17,8 @@ include('SkipThought.lua')
 include('read_data.lua')
 include('Vocab.lua')
 include('progress_writer.lua')
+include('LinearO.lua')
+include('FastSent.lua')
 
 printf = utils.printf
 
