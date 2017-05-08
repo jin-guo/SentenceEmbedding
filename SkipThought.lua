@@ -80,7 +80,7 @@ function SkipThought:__init(config)
     :add(self.decoder_post)
     :add(self.prob_module)
 
-  if self.update_word_embedding == 'true' or self.update_word_embedding == true then
+  if self.update_word_embedding == 1 then
     modules:add(self.input_module)
   end
 
@@ -183,7 +183,7 @@ function SkipThought:train(dataset, corpus)
 
         local encoder_input_grads = self:encoder_backward(embedding_sentence, encoder_output_grads)
 
-        if self.update_word_embedding == 'true' or self.update_word_embedding == true then
+        if self.update_word_embedding ==1 then
           self:input_module_backward(embedding_sentence_with_vocab_idx,
             pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
             embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
