@@ -1,6 +1,6 @@
-local SkipThought = torch.class('sentenceembedding.SkipThought')
+local AutoEncoder = torch.class('sentenceembedding.AutoEncoder')
 
-function SkipThought:__init(config)
+function AutoEncoder:__init(config)
   self.encoder_hidden_dim    = config.encoder_hidden_dim    or 50
   self.encoder_num_layers    = config.encoder_num_layers    or 1
   self.encoder_structure     = config.encoder_structure     or 'bigru'
@@ -65,8 +65,7 @@ function SkipThought:__init(config)
     num_layers      = self.decoder_num_layers
   }
 
-  self.decoder_pre  = sentenceembedding.GRUDecoder(decoder_config)
-  self.decoder_post = sentenceembedding.GRUDecoder(decoder_config)
+  self.decoder  = sentenceembedding.GRUDecoder(decoder_config)
 
   -- initialize Probability model
   self.prob_module = nn.Sequential()
@@ -76,8 +75,7 @@ function SkipThought:__init(config)
   -- For getting all the parameters for the SkipThought model
   local modules = nn.Parallel()
     :add(self.encoder)
-    :add(self.decoder_pre)
-    :add(self.decoder_post)
+    :add(self.decoder)
     :add(self.prob_module)
 
   if self.update_word_embedding == 1 then
@@ -96,7 +94,7 @@ function SkipThought:__init(config)
 
   -- Get the number of parameters for decoder
   -- (same configuration for pre and post decoder, so same number)
-  self.decoder_params = self.decoder_pre:parameters()
+  self.decoder_params = self.decoder:parameters()
   self.decoder_params_element_number = 0
   for i=1,#self.decoder_params do
     self.decoder_params_element_number =
@@ -104,10 +102,9 @@ function SkipThought:__init(config)
   end
 end
 
-function SkipThought:train(dataset, corpus)
+function AutoEncoder:train(dataset, corpus)
   self.encoder:training()
-  self.decoder_pre:training()
-  self.decoder_post:training()
+  self.decoder:training()
   self.prob_module:training()
 
   local indices = torch.randperm(dataset.size)
@@ -129,40 +126,32 @@ function SkipThought:train(dataset, corpus)
         local idx = indices[i + j - 1]
 
         -- load sentence tuple for the current training data point from the corpus
-        local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+        local embedding_sentence_with_vocab_idx =
           self:load_input_sentences(idx, dataset, corpus)
-        if embedding_sentence_with_vocab_idx == nil or
-          pre_sentence_with_vocab_idx == nil or
-          post_sentence_with_vocab_idx == nil then
-            print('Sentence Loading error for index:')
-            print(idx)
-            goto continue
-        end
-
-
-        -- Initialze each sentence with its token mapped to embedding vectors
-        local embedding_sentence, pre_sentence, post_sentence =
-          self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
-          post_sentence_with_vocab_idx)
-
-        if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+        if embedding_sentence_with_vocab_idx == nil then
+          print('Sentence Loading error for index:')
+          print(idx)
+          goto continue
+        elseif embedding_sentence_with_vocab_idx:size(1)<2 then
           print('Sentence too short.')
           goto continue
         end
+
+        -- Initialze sentence with its token mapped to embedding vectors
+        local embedding_sentence = self.input_module:forward(embedding_sentence_with_vocab_idx)
+        -- Remove the last token (EOS) as the input for the decoder
+        local embedding_sentence_for_decoder_input = embedding_sentence:sub(1,-2)
 
         -- Start the forward process
         local output_for_decoder = self:encoder_forward(embedding_sentence)
 
         -- Forward result to Decoder
-        local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+        local decoder_result = self.decoder:forward(embedding_sentence_for_decoder_input, output_for_decoder)
 
         local decoder_output = self.prob_module:forward(decoder_result)
 
-        -- Create the prediction target from the pre and post sentences
-        local pre_target, post_target
-        pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
-        post_target = post_sentence_with_vocab_idx:sub(2, -1)
-        local target = torch.cat(pre_target, post_target, 1)
+        -- Create the prediction target from the embedding sentences
+        local target = embedding_sentence_with_vocab_idx:sub(2, -1)
 
         local sentence_loss = self.criterion:forward(decoder_output, target)
         batch_loss = batch_loss + sentence_loss
@@ -173,20 +162,15 @@ function SkipThought:train(dataset, corpus)
         local sentence_grad = self.criterion:backward(decoder_output, target)
         local prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
 
-        -- Get the gradient for the pre sentence decoder and the post sentence decoder
-        local pre_encoder_output_grads, post_encoder_output_grads =
-          self:decoder_backward(pre_sentence, post_sentence, prob_grad)
+        -- Get the gradient for sentence decoder
+        local encoder_output_grads =
+          self:decoder_backward(embedding_sentence_for_decoder_input, prob_grad)
 
-        local encoder_output_grads
-        encoder_output_grads = torch.Tensor(pre_encoder_output_grads):copy(pre_encoder_output_grads)
-        encoder_output_grads:add(post_encoder_output_grads)
 
         local encoder_input_grads = self:encoder_backward(embedding_sentence, encoder_output_grads)
 
         if self.update_word_embedding ==1 then
-          self:input_module_backward(embedding_sentence_with_vocab_idx,
-            pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
-            embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
+            self.input_module:backward(embedding_sentence_with_vocab_idx, encoder_input_grads)
         end
 
         ::continue::
@@ -207,21 +191,12 @@ function SkipThought:train(dataset, corpus)
           encoder_grad_params:div(encoder_grad_norm/self.grad_clip)
       end
 
-      local pre_decoder_grad_params = self.grad_params:narrow(1,
+      local decoder_grad_params = self.grad_params:narrow(1,
         self.encoder_params_element_number+1, self.decoder_params_element_number)
-      local pre_decoder_grad_norm = torch.norm(pre_decoder_grad_params)
-      if pre_decoder_grad_norm > self.grad_clip then
+      local decoder_grad_norm = torch.norm(decoder_grad_params)
+      if decoder_grad_norm > self.grad_clip then
         print('clipping gradient for pre decoder')
-          pre_decoder_grad_params:div(pre_decoder_grad_norm/self.grad_clip)
-      end
-
-      local post_decoder_grad_params = self.grad_params:narrow(1,
-        self.encoder_params_element_number + self.decoder_params_element_number + 1,
-        self.decoder_params_element_number)
-      local post_decoder_grad_norm = torch.norm(post_decoder_grad_params)
-      if post_decoder_grad_norm > self.grad_clip then
-        print('clipping gradient for post decoder')
-          post_decoder_grad_params:div(post_decoder_grad_norm/self.grad_clip)
+          decoder_grad_params:div(decoder_grad_norm/self.grad_clip)
       end
 
       -- regularization
@@ -243,8 +218,8 @@ function SkipThought:train(dataset, corpus)
   return train_loss
 end
 
-function SkipThought:load_input_sentences(idx, dataset, corpus)
-  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
+function AutoEncoder:load_input_sentences(idx, dataset, corpus)
+  local embedding_sentence_with_vocab_idx
   -- load sentence tuple for the current training data point from the corpus
   if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
     embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
@@ -253,66 +228,10 @@ function SkipThought:load_input_sentences(idx, dataset, corpus)
       'data point:', dataset.embedding_sentence[idx])
     return
   end
-
-  if corpus.ids[dataset.pre_sentence[idx]]~= nil then
-    pre_sentence_with_vocab_idx =
-      corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
-  else
-    print('Cannot find the sentence before the embedding sentence for '..
-      'current training data point:', dataset.pre_sentence[idx])
-    return
-  end
-
-  if corpus.ids[dataset.post_sentence[idx]]~= nil then
-    post_sentence_with_vocab_idx =
-      corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
-    else
-    print('Cannot find the sentence after the embedding sentence for '..
-      'current training data point:', dataset.post_sentence[idx])
-    return
-  end
-  return embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
+  return embedding_sentence_with_vocab_idx
 end
 
-function SkipThought:input_module_forward(embedding_sentence_with_vocab_idx,
-  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx)
-  local embedding_sentence, pre_sentence, post_sentence
-  -- If any of the pre sentence or post sentence contains only the EOS token, skip this datapoint
-  if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
-    return
-  end
-
-  -- Concatenate three sentences as input for the network,
-  -- and map the vocab index in those sentences to the embedding vectors.
-  -- For the decoder input, the last token (EOS) of pre and post sentence is removed from the input.
-  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
-    pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
-  local forwardResult = self.input_module:forward(merged_index)
-
-  -- Initialze each sentence with its token mapped to embedding vectors
-  embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
-  pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
-    pre_sentence_with_vocab_idx:size(1)-1)
-  post_sentence = forwardResult:narrow(1,
-    embedding_sentence_with_vocab_idx:size(1) + pre_sentence_with_vocab_idx:size(1),
-    post_sentence_with_vocab_idx:size(1)-1)
-
-  return embedding_sentence, pre_sentence, post_sentence
-end
-
-function SkipThought:input_module_backward(embedding_sentence_with_vocab_idx,
-  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
-  embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
-  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
-    pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
-  local grad_for_input_model = torch.zeros(merged_index:size(1), encoder_input_grads:size(2))
-  for i=1, encoder_input_grads:size(1) do
-    grad_for_input_model[i] = encoder_input_grads[i]
-  end
-  self.input_module:backward(merged_index, grad_for_input_model)
-end
-
-function SkipThought:encoder_forward(embedding_sentence)
+function AutoEncoder:encoder_forward(embedding_sentence)
   local encode_result = self.encoder:forward(embedding_sentence)
   local output_for_decoder
   if self.encoder.num_layers>1 then
@@ -355,39 +274,7 @@ function SkipThought:encoder_forward(embedding_sentence)
   return output_for_decoder
 end
 
-function SkipThought:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
-  local pre_decoder_result = self.decoder_pre:forward(pre_sentence,output_for_decoder)
-  local post_decoder_result = self.decoder_post:forward(post_sentence,output_for_decoder)
-
-  local decoder_result
-  local pre_decoder_result_size, post_decoder_result_size
-  if self.decoder_num_layers>1 then
-    local pre_decoder_output_flatten = torch.zeros(pre_sentence:size(1),
-      self.decoder_num_layers*self.decoder_hidden_dim)
-    for t = 1, pre_sentence:size(1) do
-      local output_current_time = pre_decoder_result:select(1, t)
-      output_current_time = output_current_time:view(output_current_time:nElement())
-      pre_decoder_output_flatten[t] = output_current_time
-    end
-
-    local post_decoder_output_flatten = torch.zeros(post_sentence:size(1),
-      self.decoder_num_layers*self.decoder_hidden_dim)
-    for t = 1, post_sentence:size(1) do
-      local output_current_time = post_decoder_result:select(1, t)
-      output_current_time = output_current_time:view(output_current_time:nElement())
-      post_decoder_output_flatten[t] = output_current_time
-    end
-
-    -- Concatenate the decoder output from pre and post sentences
-    -- as the input for the probability module
-    decoder_result = torch.cat(pre_decoder_output_flatten, post_decoder_output_flatten, 1)
-  else -- Case: self.decoder_num_layers == 1
-    decoder_result = torch.cat(pre_decoder_result, post_decoder_result, 1)
-  end
-  return decoder_result
-end
-
-function SkipThought:encoder_backward(embedding_sentence, encoder_output_grads)
+function AutoEncoder:encoder_backward(embedding_sentence, encoder_output_grads)
   local grad_input
   if encoder_output_grads ~= nil then
     if self.encoder_num_layers>1 then
@@ -426,44 +313,27 @@ function SkipThought:encoder_backward(embedding_sentence, encoder_output_grads)
   return grad_input
 end
 
-function SkipThought:decoder_backward(pre_sentence, post_sentence, prob_grad)
-  local pre_prob_grad, post_prob_grad
-  pre_prob_grad = prob_grad:narrow(1, 1, pre_sentence:size(1))
-  post_prob_grad = prob_grad:narrow(1, pre_sentence:size(1)+1,
-    post_sentence:size(1))
-
-  local pre_decoder_input_grad, pre_encoder_output_grads
-  local post_decoder_input_grad, post_encoder_output_grads
+function AutoEncoder:decoder_backward(embedding_sentence_for_decoder_input, prob_grad)
+  local decoder_input_grad, encoder_output_grads
   if self.decoder_hidden_dim>1 then
-    local gradInput_for_pre_decoder = torch.zeros(pre_sentence:size(1),
+    local gradInput_for_decoder = torch.zeros(embedding_sentence_for_decoder_input:size(1),
       self.decoder_num_layers, self.decoder_hidden_dim)
-    for t = 1, pre_sentence:size(1) do
-      local gradInput_current_time = pre_prob_grad:select(1,t)
+    for t = 1, embedding_sentence_for_decoder_input:size(1) do
+      local gradInput_current_time = prob_grad:select(1,t)
       gradInput_current_time = gradInput_current_time:resize(self.decoder_num_layers, self.decoder_hidden_dim)
-      gradInput_for_pre_decoder[t] = gradInput_current_time
+      gradInput_for_decoder[t] = gradInput_current_time
     end
-    pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, gradInput_for_pre_decoder)
-
-    local gradInput_for_post_decoder = torch.zeros(post_sentence:size(1),
-      self.decoder_num_layers, self.decoder_hidden_dim)
-    for t = 1, post_sentence:size(1) do
-      local gradInput_current_time = post_prob_grad:select(1,t)
-      gradInput_current_time = gradInput_current_time:resize(self.decoder_num_layers, self.decoder_hidden_dim)
-      gradInput_for_post_decoder[t] = gradInput_current_time
-    end
-    post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, gradInput_for_post_decoder)
+    decoder_input_grad, encoder_output_grads = self.decoder:backward(embedding_sentence_for_decoder_input, gradInput_for_decoder)
 
   else -- Case: self.decoder_num_layers == 1
-    pre_decoder_input_grad, pre_encoder_output_grads = self.decoder_pre:backward(pre_sentence, pre_prob_grad)
-    post_decoder_input_grad, post_encoder_output_grads = self.decoder_post:backward(post_sentence, post_prob_grad)
+    decoder_input_grad, encoder_output_grads = self.decoder:backward(embedding_sentence_for_decoder_input, prob_grad)
   end
-  return pre_encoder_output_grads, post_encoder_output_grads
+  return encoder_output_grads
 end
 
-function SkipThought:calcluate_loss(dataset, corpus)
+function AutoEncoder:calcluate_loss(dataset, corpus)
   self.encoder:evaluate()
-  self.decoder_pre:evaluate()
-  self.decoder_post:evaluate()
+  self.decoder:evaluate()
   self.prob_module:evaluate()
   local total_loss = 0
   local data_count = 0
@@ -479,53 +349,45 @@ function SkipThought:calcluate_loss(dataset, corpus)
   return total_loss/data_count
 end
 
-function SkipThought:calculate_loss_one_instance(idx, dataset, corpus)
+function AutoEncoder:calculate_loss_one_instance(idx, dataset, corpus)
   -- load sentence tuple for the current training data point from the corpus
-  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
+  local embedding_sentence_with_vocab_idx =
     self:load_input_sentences(idx, dataset, corpus)
-  if embedding_sentence_with_vocab_idx == nil or
-    pre_sentence_with_vocab_idx == nil or
-    post_sentence_with_vocab_idx == nil then
-      print('Sentence Loading error for index:')
-      print(idx)
-      return -1
-  end
-
-  -- Initialze each sentence with its token mapped to embedding vectors
-  local embedding_sentence, pre_sentence, post_sentence =
-    self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
-    post_sentence_with_vocab_idx)
-
-  if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+  if embedding_sentence_with_vocab_idx == nil then
+    print('Sentence Loading error for index:')
+    print(idx)
+    return -1
+  elseif embedding_sentence_with_vocab_idx:size(1)<2 then
     print('Sentence too short.')
     return -1
   end
+
+  -- Initialze sentence with its token mapped to embedding vectors
+  local embedding_sentence = self.input_module:forward(embedding_sentence_with_vocab_idx)
+  -- Remove the last token (EOS) as the input for the decoder
+  local embedding_sentence_for_decoder_input = embedding_sentence:sub(1,-2)
 
   -- Start the forward process
   local output_for_decoder = self:encoder_forward(embedding_sentence)
 
   -- Forward result to Decoder
-  local decoder_result = self:decoder_forward(pre_sentence, post_sentence, output_for_decoder)
+  local decoder_result = self.decoder:forward(embedding_sentence_for_decoder_input,output_for_decoder)
 
   local decoder_output = self.prob_module:forward(decoder_result)
 
-  -- Create the prediction target from the pre and post sentences
-  local pre_target, post_target
-  pre_target = pre_sentence_with_vocab_idx:sub(2, -1)
-  post_target = post_sentence_with_vocab_idx:sub(2, -1)
-  local target = torch.cat(pre_target, post_target, 1)
+  -- Create the prediction target from the embedding sentences
+  local target = embedding_sentence_with_vocab_idx:sub(2, -1)
 
   local sentence_loss = self.criterion:forward(decoder_output, target)
   -- print('Sentence Loss:', sentence_loss)
   -- Important: to clear the grad_input from the last forward step.
   self.encoder:forget()
-  self.decoder_pre:forget()
-  self.decoder_post:forget()
+  self.decoder:forget()
 
   return sentence_loss
 end
 
-function SkipThought:print_config()
+function AutoEncoder:print_config()
   print('Configurations for the Skip Thoughts Model')
   local num_params = self.params:nElement()
   printf('%-25s = %.2e\n', 'initial learning rate', self.learning_rate)
@@ -546,7 +408,7 @@ end
 --
 -- Serialization
 --
-function SkipThought:save(path)
+function AutoEncoder:save(path)
   local config = {
     encoder_hidden_dim  = self.encoder_hidden_dim,
     encoder_num_layers  = self.encoder_num_layers,
@@ -570,7 +432,7 @@ function SkipThought:save(path)
   })
 end
 
-function SkipThought.load(path)
+function AutoEncoder.load(path)
   local state = torch.load(path)
   local model = sentenceembedding.SkipThought.new(state.config)
   model.params:copy(state.params)

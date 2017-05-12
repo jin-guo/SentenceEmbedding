@@ -19,6 +19,8 @@ include('Vocab.lua')
 include('progress_writer.lua')
 include('LinearO.lua')
 include('FastSent.lua')
+include('AutoEncoder.lua')
+
 
 printf = utils.printf
 

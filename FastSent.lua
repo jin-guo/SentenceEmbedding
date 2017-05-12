@@ -145,9 +145,9 @@ function FastSent:train(dataset, corpus)
         ::continue::
       end -- Finished
       train_loss = train_loss + batch_loss
-      print('Batch loss:', batch_loss/self.batch_size)
+      print('Batch loss:', batch_loss/batch_size)
       self.progress_writer:write_string(
-        string.format('%s: %.4f\n',   'Batch Loss', batch_loss/self.batch_size))
+        string.format('%s: %.4f\n',   'Batch Loss', batch_loss/batch_size))
 
       self.grad_params:div(batch_size)
 

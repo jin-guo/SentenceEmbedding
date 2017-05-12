@@ -15,7 +15,7 @@ Training script for SkipThought on the Domain Document dataset.
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
   -u,--update_word_emb (default 0)         Update wordEmbedding flag
-  -e,--epochs (default 10)                 Number of training epochs
+  -e,--epochs (default 3)                 Number of training epochs
   -r,--learning_rate (default 1.00e-02)    Learning Rate during Training NN Model
   -d,--learning_rate_decay (default 1)     Learning Rate Decay Flag
   -b,--batch_size (default 50)             Batch Size of training data point for each update of parameters
@@ -23,8 +23,8 @@ Training script for SkipThought on the Domain Document dataset.
   -g,--reg  (default 1.00e-06)             Regulation lamda
   -o,--output_dir (default '/Users/Jinguo/Dropbox/TraceNN_experiment/skipthoughts/') Output directory
   -w,--wordembedding_name (default 'ptc_w10_50d_20iter_new') Name of the word embedding file
-  -p,--progress_output (default 'progress.txt') Name of the progress output file
-  -m,--model_output (default 'trained_skipthought.model') Name of the trained model
+  -p,--progress_output (default 'AutoEncoder_progress.txt') Name of the progress output file
+  -m,--model_output (default 'trained_autoencoder.model') Name of the trained model
 ]]
 
 
@@ -131,7 +131,7 @@ local progress_writer = sentenceembedding.progress_writer{
 }
 
 -- Initialze SkipThought model
-local model_class = sentenceembedding.SkipThought
+local model_class = sentenceembedding.AutoEncoder
 local model = model_class{
   emb_vecs             = vecs,
   encoder_hidden_dim   = args.encoder_dim,
