@@ -11,6 +11,7 @@ local args = lapp [[
 Training script for SkipThought on the Domain Document dataset.
   -e,--epochs (default 100)                  Number of training epochs
   -r,--learning_rate (default 1.00e-03)    Learning Rate during Training NN Model
+  -d,--learning_rate_decay (default 1)     Learning Rate Decay Flag
   -b,--batch_size (default 50)              Batch Size of training data point for each update of parameters
   -g,--reg  (default 1.00e-06)             Regulation lamda
   -t,--test_model (default false)          test model on the testing data
@@ -143,6 +144,9 @@ header('model configuration')
 printf('max epochs = %d\n', num_epochs)
 model:print_config()
 
+
+local model_save_path = sentenceembedding.models_dir .. args.model_output
+local best_dev_loss = 1000000
 -- Start Training
 local train_set, dev_set = split_dataset(dataset, 10)
 for i = 1, num_epochs do
@@ -172,9 +176,14 @@ for i = 1, num_epochs do
   progress_writer:write_string(
     string.format('%s %.4f\n',   'Average Development Loss:', dev_loss))
   progress_writer:write_string('***********************\n')
+  if args.learning_rate_decay == 1 then
+    model.learning_rate = model.learning_rate*0.1
+  end
+
+  if best_dev_loss > dev_loss then
+    print('writing model for current epoch to ' .. model_save_path)
+    model:save(model_save_path)
+    best_dev_loss = dev_loss
+  end
 end
 progress_writer:close_file()
-
-local model_save_path = sentenceembedding.models_dir .. args.model_output
-print('writing model to ' .. model_save_path)
-model:save(model_save_path)

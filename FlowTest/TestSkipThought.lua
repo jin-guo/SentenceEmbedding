@@ -157,6 +157,9 @@ header('model configuration')
 printf('max epochs = %d\n', num_epochs)
 model:print_config()
 
+
+local model_save_path = sentenceembedding.models_dir .. args.model_output
+local best_dev_loss = 1000000
 -- Start Training
 local train_set, dev_set = split_dataset(dataset, 10)
 for i = 1, num_epochs do
@@ -189,9 +192,11 @@ for i = 1, num_epochs do
   if args.learning_rate_decay == 1 then
     model.learning_rate = model.learning_rate*0.1
   end
+
+  if best_dev_loss > dev_loss then
+    print('writing model for current epoch to ' .. model_save_path)
+    model:save(model_save_path)
+    best_dev_loss = dev_loss
+  end
 end
 progress_writer:close_file()
-
-local model_save_path = sentenceembedding.models_dir .. args.model_output
-print('writing model to ' .. model_save_path)
-model:save(model_save_path)
