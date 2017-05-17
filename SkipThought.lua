@@ -1,6 +1,7 @@
 local SkipThought = torch.class('sentenceembedding.SkipThought')
 
 function SkipThought:__init(config)
+  self.name                  = 'SkipThoughts'
   self.encoder_hidden_dim    = config.encoder_hidden_dim    or 50
   self.encoder_num_layers    = config.encoder_num_layers    or 1
   self.encoder_structure     = config.encoder_structure     or 'bigru'
@@ -185,8 +186,7 @@ function SkipThought:train(dataset, corpus)
 
         if self.update_word_embedding ==1 then
           self:input_module_backward(embedding_sentence_with_vocab_idx,
-            pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
-            embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
+            pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx, encoder_input_grads)
         end
 
         ::continue::
@@ -301,8 +301,7 @@ function SkipThought:input_module_forward(embedding_sentence_with_vocab_idx,
 end
 
 function SkipThought:input_module_backward(embedding_sentence_with_vocab_idx,
-  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
-  embedding_sentence, pre_sentence, post_sentence, encoder_input_grads)
+  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx, encoder_input_grads)
   local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
     pre_sentence_with_vocab_idx:sub(1,-2),1):cat(post_sentence_with_vocab_idx:sub(1,-2),1)
   local grad_for_input_model = torch.zeros(merged_index:size(1), encoder_input_grads:size(2))

@@ -20,6 +20,7 @@ include('progress_writer.lua')
 include('LinearO.lua')
 include('FastSent.lua')
 include('AutoEncoder.lua')
+include('ContextEncoder.lua')
 
 
 printf = utils.printf

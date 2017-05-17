@@ -6,8 +6,9 @@ function progress_writer:__init(config)
   print('Writing training progress to ' .. self.progress_file_name)
 end
 
-function progress_writer:write_skiptought_model_config(model)
+function progress_writer:write_skipthought_model_config(model)
   self.progress_file:write('--------------------------Model Configuration:--------------------------\n')
+  self.progress_file:write(string.format('%-25s = %s\n',   'Model Type', model.name))
   self.progress_file:write(string.format('%-25s = %.2e\n', 'initial learning rate', model.learning_rate))
   self.progress_file:write(string.format('%-25s = %d\n',   'minibatch size', model.batch_size))
   self.progress_file:write(string.format('%-25s = %f\n',   'gradient clipping', model.grad_clip))
@@ -25,6 +26,7 @@ end
 
 function progress_writer:write_fastsent_model_config(model)
   self.progress_file:write('--------------------------Model Configuration:--------------------------\n')
+  self.progress_file:write(string.format('%-25s = %s\n',   'Model Type', model.name))
   self.progress_file:write(string.format('%-25s = %.2e\n', 'initial learning rate', model.learning_rate))
   self.progress_file:write(string.format('%-25s = %d\n',   'minibatch size', model.batch_size))
   self.progress_file:write(string.format('%-25s = %f\n',   'gradient clipping', model.grad_clip))
@@ -35,6 +37,20 @@ function progress_writer:write_fastsent_model_config(model)
 
 end
 
+function progress_writer:write_contextencoder_model_config(model)
+  self.progress_file:write('--------------------------Model Configuration:--------------------------\n')
+  self.progress_file:write(string.format('%-25s = %s\n',   'Model Type', model.name))
+  self.progress_file:write(string.format('%-25s = %.2e\n', 'initial learning rate', model.learning_rate))
+  self.progress_file:write(string.format('%-25s = %d\n',   'minibatch size', model.batch_size))
+  self.progress_file:write(string.format('%-25s = %f\n',   'gradient clipping', model.grad_clip))
+  self.progress_file:write(string.format('%-25s = %.2e\n',  'regularization strength', model.reg))
+  self.progress_file:write('\n')
+  self.progress_file:write(string.format('%-25s = %d\n',   'Word Embedding dim', model.emb_dim))
+  self.progress_file:write(string.format('%-25s = %s\n',   'Encoder structure', model.encoder_structure))
+  self.progress_file:write(string.format('%-25s = %d\n',   'Encoder hidden dim', model.encoder_hidden_dim))
+  self.progress_file:write(string.format('%-25s = %d\n',   'Encoder # of layers', model.encoder_num_layers))
+  self.progress_file:write('------------------------------------------------------------------------\n')
+end
 function progress_writer:write_string(string_to_write)
   self.progress_file:write(string_to_write)
 end

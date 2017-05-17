@@ -48,7 +48,7 @@ function sentenceembedding.read_corpus(dir, vocab)
 end
 
 
-function sentenceembedding.read_skipthough_dataset(dir)
+function sentenceembedding.read_skipthought_dataset(dir)
   local dataset = {}
   dataset.embedding_sentence = {}
   local embedding_sentence_id_file = io.open(dir .. 'embedding_sentence_id.txt')

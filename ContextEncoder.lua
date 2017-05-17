@@ -1,12 +1,10 @@
-local AutoEncoder = torch.class('sentenceembedding.AutoEncoder')
+local ContextEncoder = torch.class('sentenceembedding.ContextEncoder')
 
-function AutoEncoder:__init(config)
-  self.name                  = 'AutoEncoder'
+function ContextEncoder:__init(config)
+  self.name                  = 'ContextEncoder'
   self.encoder_hidden_dim    = config.encoder_hidden_dim    or 50
   self.encoder_num_layers    = config.encoder_num_layers    or 1
   self.encoder_structure     = config.encoder_structure     or 'bigru'
-  self.decoder_hidden_dim    = config.decoder_hidden_dim    or 50
-  self.decoder_num_layers    = config.decoder_num_layers    or 1
 
   self.init_learning_rate = config.learning_rate or 0.0001
   self.learning_rate = config.learning_rate or 0.0001
@@ -33,9 +31,9 @@ function AutoEncoder:__init(config)
   -- Set Objective as minimize Negative Log Likelihood
   -- Remember to set the size_average to false to use the effect of weight!!
   -- self.criterion = nn.ClassNLLCriterion(self.class_weight, false)
-  self.criterion = nn.ClassNLLCriterion()
+  self.criterion = nn.MSECriterion()
 
-  -- initialize SkipThought model
+  -- initialize ContextEncoder model
   -- Input model mapping the word index to embedding vectors
   self.input_module = nn.Sequential()
   local lookup = nn.LookupTable(config.emb_vecs:size(1), self.emb_dim)
@@ -51,6 +49,11 @@ function AutoEncoder:__init(config)
     structure  = self.encoder_structure
   }
   self.encoder = sentenceembedding.Encoder(encoder_config)
+  self.encoder_pre = sentenceembedding.Encoder(encoder_config)
+  self.encoder_post = sentenceembedding.Encoder(encoder_config)
+
+  share_params(self.encoder, self.encoder_pre)
+  share_params(self.encoder, self.encoder_post)
 
   -- initialize Decoder model
   local encoder_out_dim_real
@@ -59,25 +62,16 @@ function AutoEncoder:__init(config)
   else
     encoder_out_dim_real = self.encoder_num_layers*self.encoder_hidden_dim
   end
-  local decoder_config = {
-    encoder_out_dim = encoder_out_dim_real,
-    in_dim          = self.emb_vecs:size(2),
-    hidden_dim      = self.decoder_hidden_dim,
-    num_layers      = self.decoder_num_layers
-  }
 
-  self.decoder  = sentenceembedding.GRUDecoder(decoder_config)
+  self.transform_module = nn.Sequential()
+    :add(nn.Linear(encoder_out_dim_real, encoder_out_dim_real))
+    :add(nn.Sigmoid())
 
-  -- initialize Probability model
-  self.prob_module = nn.Sequential()
-    :add(nn.Linear(self.decoder_num_layers*self.decoder_hidden_dim, self.emb_vecs:size(1)))
-    :add(nn.LogSoftMax())
 
-  -- For getting all the parameters for the SkipThought model
+  -- For getting all the parameters for the ContextEncoder model
   local modules = nn.Parallel()
     :add(self.encoder)
-    :add(self.decoder)
-    :add(self.prob_module)
+    :add(self.transform_module)
 
   if self.update_word_embedding == 1 then
     modules:add(self.input_module)
@@ -93,20 +87,12 @@ function AutoEncoder:__init(config)
       self.encoder_params_element_number + self.encoder_params[i]:nElement()
   end
 
-  -- Get the number of parameters for decoder
-  -- (same configuration for pre and post decoder, so same number)
-  self.decoder_params = self.decoder:parameters()
-  self.decoder_params_element_number = 0
-  for i=1,#self.decoder_params do
-    self.decoder_params_element_number =
-      self.decoder_params_element_number + self.decoder_params[i]:nElement()
-  end
 end
 
-function AutoEncoder:train(dataset, corpus)
+function ContextEncoder:train(dataset, corpus)
   self.encoder:training()
-  self.decoder:training()
-  self.prob_module:training()
+  self.encoder_pre:training()
+  self.encoder_post:training()
 
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
@@ -127,51 +113,73 @@ function AutoEncoder:train(dataset, corpus)
         local idx = indices[i + j - 1]
 
         -- load sentence tuple for the current training data point from the corpus
-        local embedding_sentence_with_vocab_idx =
+        local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
           self:load_input_sentences(idx, dataset, corpus)
-        if embedding_sentence_with_vocab_idx == nil then
-          print('Sentence Loading error for index:')
-          print(idx)
-          goto continue
-        elseif embedding_sentence_with_vocab_idx:size(1)<2 then
-          print('Sentence too short.')
-          goto continue
+        if embedding_sentence_with_vocab_idx == nil or
+          pre_sentence_with_vocab_idx == nil or
+          post_sentence_with_vocab_idx == nil then
+            print('Sentence Loading error for index:')
+            print(idx)
+            goto continue
         end
 
-        -- Initialze sentence with its token mapped to embedding vectors
-        local embedding_sentence = self.input_module:forward(embedding_sentence_with_vocab_idx)
-        -- Remove the last token (EOS) as the input for the decoder
-        local embedding_sentence_for_decoder_input = embedding_sentence:sub(1,-2)
+
+        -- Initialze each sentence with its token mapped to embedding vectors
+        -- Initialze each sentence with its token mapped to embedding vectors
+        local embedding_sentence, pre_sentence, post_sentence =
+          self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
+          post_sentence_with_vocab_idx)
+
+        if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
+          print('Sentence too short.')
+          return -1
+        end
 
         -- Start the forward process
-        local output_for_decoder = self:encoder_forward(embedding_sentence)
+        local encoder_result = self:encoder_forward(embedding_sentence, self.encoder)
+        local encoder_pre_result = self:encoder_forward(pre_sentence, self.encoder_pre)
+        local encoder_post_result = self:encoder_forward(post_sentence, self.encoder_post)
 
-        -- Forward result to Decoder
-        local decoder_result = self.decoder:forward(embedding_sentence_for_decoder_input, output_for_decoder)
+        -- Concatenate encoder_result for pre and post sentence
+        local transformed_encoder_result = self.transform_module:forward(encoder_result)
 
-        local decoder_output = self.prob_module:forward(decoder_result)
+        -- Create the prediction target from the pre and post sentences
+        local prediction = torch.cat(transformed_encoder_result, transformed_encoder_result, 1)
+        local target = torch.cat(encoder_pre_result, encoder_post_result, 1)
 
-        -- Create the prediction target from the embedding sentences
-        local target = embedding_sentence_with_vocab_idx:sub(2, -1)
-
-        local sentence_loss = self.criterion:forward(decoder_output, target)
+        local sentence_loss = self.criterion:forward(prediction, target)
         batch_loss = batch_loss + sentence_loss
         data_count = data_count + 1
         -- print('sentence_loss:', sentence_loss)
 
+
         -- Starting the backward process
-        local sentence_grad = self.criterion:backward(decoder_output, target)
-        local prob_grad = self.prob_module:backward(decoder_result, sentence_grad)
+        local sentence_grad = self.criterion:backward(prediction, target)
 
-        -- Get the gradient for sentence decoder
-        local encoder_output_grads =
-          self:decoder_backward(embedding_sentence_for_decoder_input, prob_grad)
+        local sentence_grad_to_target = torch.mul(sentence_grad, -1)
 
 
-        local encoder_input_grads = self:encoder_backward(embedding_sentence, encoder_output_grads)
+        local transform_grads_from_pre, transform_grads_from_post
+        transform_grads_from_pre = sentence_grad:narrow(1, 1, encoder_result:size(1))
+        transform_grads_from_post = sentence_grad:narrow(1, encoder_result:size(1)+1,
+          encoder_result:size(1))
+
+        local transform_grads_to_pre, transform_grads_to_post
+        transform_grads_to_pre = sentence_grad_to_target:narrow(1, 1, encoder_pre_result:size(1))
+        transform_grads_to_post = sentence_grad_to_target:narrow(1, encoder_pre_result:size(1)+1,
+          encoder_post_result:size(1))
+
+        local encoder_output_grads = self.transform_module:backward(encoder_result,
+          torch.add(transform_grads_from_pre, transform_grads_from_post))
+
+        local encoder_input_grads = self:encoder_backward(embedding_sentence, encoder_output_grads, self.encoder)
+        local pre_encoder_input_grads = self:encoder_backward(pre_sentence, transform_grads_to_pre, self.encoder_pre)
+        local post_encoder_input_grads = self:encoder_backward(post_sentence, transform_grads_to_post, self.encoder_post)
 
         if self.update_word_embedding ==1 then
-            self.input_module:backward(embedding_sentence_with_vocab_idx, encoder_input_grads)
+          self:input_module_backward(embedding_sentence_with_vocab_idx,
+            pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
+            encoder_input_grads, pre_encoder_input_grads, post_encoder_input_grads)
         end
 
         ::continue::
@@ -190,14 +198,6 @@ function AutoEncoder:train(dataset, corpus)
       if encoder_grad_norm > self.grad_clip then
         print('clipping gradient for encoder')
           encoder_grad_params:div(encoder_grad_norm/self.grad_clip)
-      end
-
-      local decoder_grad_params = self.grad_params:narrow(1,
-        self.encoder_params_element_number+1, self.decoder_params_element_number)
-      local decoder_grad_norm = torch.norm(decoder_grad_params)
-      if decoder_grad_norm > self.grad_clip then
-        print('clipping gradient for pre decoder')
-          decoder_grad_params:div(decoder_grad_norm/self.grad_clip)
       end
 
       -- regularization
@@ -219,8 +219,8 @@ function AutoEncoder:train(dataset, corpus)
   return train_loss
 end
 
-function AutoEncoder:load_input_sentences(idx, dataset, corpus)
-  local embedding_sentence_with_vocab_idx
+function ContextEncoder:load_input_sentences(idx, dataset, corpus)
+  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
   -- load sentence tuple for the current training data point from the corpus
   if corpus.ids[dataset.embedding_sentence[idx]]~= nil then
     embedding_sentence_with_vocab_idx = corpus.sentences[corpus.ids[dataset.embedding_sentence[idx]]]
@@ -229,11 +229,78 @@ function AutoEncoder:load_input_sentences(idx, dataset, corpus)
       'data point:', dataset.embedding_sentence[idx])
     return
   end
-  return embedding_sentence_with_vocab_idx
+
+  if corpus.ids[dataset.pre_sentence[idx]]~= nil then
+    pre_sentence_with_vocab_idx =
+      corpus.sentences[corpus.ids[dataset.pre_sentence[idx]]]
+
+  else
+    print('Cannot find the sentence before the embedding sentence for '..
+      'current training data point:', dataset.pre_sentence[idx])
+    return
+  end
+
+  if corpus.ids[dataset.post_sentence[idx]]~= nil then
+    post_sentence_with_vocab_idx =
+      corpus.sentences[corpus.ids[dataset.post_sentence[idx]]]
+    else
+    print('Cannot find the sentence after the embedding sentence for '..
+      'current training data point:', dataset.post_sentence[idx])
+    return
+  end
+  return embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx
 end
 
-function AutoEncoder:encoder_forward(embedding_sentence)
-  local encode_result = self.encoder:forward(embedding_sentence)
+function ContextEncoder:input_module_forward(embedding_sentence_with_vocab_idx,
+  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx)
+  local embedding_sentence, pre_sentence, post_sentence
+  -- If any of the pre sentence or post sentence contains only the EOS token, skip this datapoint
+  if pre_sentence_with_vocab_idx:size(1)<2 or post_sentence_with_vocab_idx:size(1)<2 then
+    return
+  end
+
+  -- Concatenate three sentences as input for the network,
+  -- and map the vocab index in those sentences to the embedding vectors.
+  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
+    pre_sentence_with_vocab_idx,1):cat(post_sentence_with_vocab_idx,1)
+  local forwardResult = self.input_module:forward(merged_index)
+
+  -- Initialze each sentence with its token mapped to embedding vectors
+  embedding_sentence = forwardResult:narrow(1,1,embedding_sentence_with_vocab_idx:size(1))
+  pre_sentence = forwardResult:narrow(1,embedding_sentence_with_vocab_idx:size(1) + 1,
+    pre_sentence_with_vocab_idx:size(1))
+  post_sentence = forwardResult:narrow(1,
+    embedding_sentence_with_vocab_idx:size(1) + pre_sentence_with_vocab_idx:size(1) + 1,
+    post_sentence_with_vocab_idx:size(1))
+
+  return embedding_sentence, pre_sentence, post_sentence
+end
+
+function ContextEncoder:input_module_backward(embedding_sentence_with_vocab_idx,
+  pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx,
+  encoder_input_grads, pre_encoder_input_grads, post_encoder_input_grads)
+  local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
+    pre_sentence_with_vocab_idx,1):cat(post_sentence_with_vocab_idx,1)
+  local grad_for_input_model = torch.zeros(merged_index:size(1), encoder_input_grads:size(2))
+  for i=1, embedding_sentence_with_vocab_idx:size(1) do
+    grad_for_input_model[i] = encoder_input_grads[i]
+  end
+  local count = 1
+  for i=embedding_sentence_with_vocab_idx:size(1)+1,  pre_sentence_with_vocab_idx:size(1) do
+    grad_for_input_model[i] = pre_encoder_input_grads[count]
+    count = count + 1
+  end
+  count = 1
+  for i=embedding_sentence_with_vocab_idx:size(1)+pre_sentence_with_vocab_idx:size(1)+1,
+    post_encoder_input_grads:size(1)  do
+    grad_for_input_model[i] = post_encoder_input_grads[i]
+    count = count + 1
+  end
+  self.input_module:backward(merged_index, grad_for_input_model)
+end
+
+function ContextEncoder:encoder_forward(embedding_sentence, encoder)
+  local encode_result = encoder:forward(embedding_sentence)
   local output_for_decoder
   if self.encoder.num_layers>1 then
     if string.starts(self.encoder.structure,'bi') then
@@ -275,7 +342,7 @@ function AutoEncoder:encoder_forward(embedding_sentence)
   return output_for_decoder
 end
 
-function AutoEncoder:encoder_backward(embedding_sentence, encoder_output_grads)
+function ContextEncoder:encoder_backward(embedding_sentence, encoder_output_grads, encoder)
   local grad_input
   if encoder_output_grads ~= nil then
     if self.encoder_num_layers>1 then
@@ -298,44 +365,27 @@ function AutoEncoder:encoder_backward(embedding_sentence, encoder_output_grads)
       if string.starts(self.encoder_structure,'bi') then
         grad_for_encoder = {grad_for_encoder_forward, grad_for_encoder_backward}
       end  -- Finished assemble grad_for_encoder
-      grad_input = self.encoder:backward(embedding_sentence, grad_for_encoder)
+      grad_input = encoder:backward(embedding_sentence, grad_for_encoder)
 
     else -- Case: self.encoder_num_layers == 1
       local grad_for_encoder = {}
       if string.starts(self.encoder_structure,'bi') then
         grad_for_encoder = {encoder_output_grads:narrow(1, 1, self.encoder_hidden_dim),
           encoder_output_grads:narrow(1, self.encoder_hidden_dim+1, self.encoder_hidden_dim)}
-        grad_input = self.encoder:backward(embedding_sentence, grad_for_encoder)
+        grad_input = encoder:backward(embedding_sentence, grad_for_encoder)
       else
-        grad_input = self.encoder:backward(embedding_sentence, encoder_output_grads)
+        grad_input = encoder:backward(embedding_sentence, encoder_output_grads)
       end
     end
   end
   return grad_input
 end
 
-function AutoEncoder:decoder_backward(embedding_sentence_for_decoder_input, prob_grad)
-  local decoder_input_grad, encoder_output_grads
-  if self.decoder_hidden_dim>1 then
-    local gradInput_for_decoder = torch.zeros(embedding_sentence_for_decoder_input:size(1),
-      self.decoder_num_layers, self.decoder_hidden_dim)
-    for t = 1, embedding_sentence_for_decoder_input:size(1) do
-      local gradInput_current_time = prob_grad:select(1,t)
-      gradInput_current_time = gradInput_current_time:resize(self.decoder_num_layers, self.decoder_hidden_dim)
-      gradInput_for_decoder[t] = gradInput_current_time
-    end
-    decoder_input_grad, encoder_output_grads = self.decoder:backward(embedding_sentence_for_decoder_input, gradInput_for_decoder)
-
-  else -- Case: self.decoder_num_layers == 1
-    decoder_input_grad, encoder_output_grads = self.decoder:backward(embedding_sentence_for_decoder_input, prob_grad)
-  end
-  return encoder_output_grads
-end
-
-function AutoEncoder:calcluate_loss(dataset, corpus)
+function ContextEncoder:calcluate_loss(dataset, corpus)
   self.encoder:evaluate()
-  self.decoder:evaluate()
-  self.prob_module:evaluate()
+  self.encoder_pre:evaluate()
+  self.encoder_post:evaluate()
+
   local total_loss = 0
   local data_count = 0
   for i = 1, dataset.size do
@@ -350,46 +400,54 @@ function AutoEncoder:calcluate_loss(dataset, corpus)
   return total_loss/data_count
 end
 
-function AutoEncoder:calculate_loss_one_instance(idx, dataset, corpus)
+function ContextEncoder:calculate_loss_one_instance(idx, dataset, corpus)
   -- load sentence tuple for the current training data point from the corpus
-  local embedding_sentence_with_vocab_idx =
+  local embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx, post_sentence_with_vocab_idx =
     self:load_input_sentences(idx, dataset, corpus)
-  if embedding_sentence_with_vocab_idx == nil then
-    print('Sentence Loading error for index:')
-    print(idx)
-    return -1
-  elseif embedding_sentence_with_vocab_idx:size(1)<2 then
+  if embedding_sentence_with_vocab_idx == nil or
+    pre_sentence_with_vocab_idx == nil or
+    post_sentence_with_vocab_idx == nil then
+      print('Sentence Loading error for index:')
+      print(idx)
+      return -1
+  end
+
+
+  -- Initialze each sentence with its token mapped to embedding vectors
+  -- Initialze each sentence with its token mapped to embedding vectors
+  local embedding_sentence, pre_sentence, post_sentence =
+    self:input_module_forward(embedding_sentence_with_vocab_idx, pre_sentence_with_vocab_idx,
+    post_sentence_with_vocab_idx)
+
+  if embedding_sentence == nil or pre_sentence == nil or post_sentence == nil then
     print('Sentence too short.')
     return -1
   end
 
-  -- Initialze sentence with its token mapped to embedding vectors
-  local embedding_sentence = self.input_module:forward(embedding_sentence_with_vocab_idx)
-  -- Remove the last token (EOS) as the input for the decoder
-  local embedding_sentence_for_decoder_input = embedding_sentence:sub(1,-2)
-
   -- Start the forward process
-  local output_for_decoder = self:encoder_forward(embedding_sentence)
+  local encoder_result = self:encoder_forward(embedding_sentence, self.encoder)
+  local encoder_pre_result = self:encoder_forward(pre_sentence, self.encoder_pre)
+  local encoder_post_result = self:encoder_forward(post_sentence, self.encoder_post)
 
-  -- Forward result to Decoder
-  local decoder_result = self.decoder:forward(embedding_sentence_for_decoder_input,output_for_decoder)
+  -- Concatenate encoder_result for pre and post sentence
+  local transformed_encoder_result = self.transform_module:forward(encoder_result)
 
-  local decoder_output = self.prob_module:forward(decoder_result)
+  -- Create the prediction target from the pre and post sentences
+  local prediction = torch.cat(transformed_encoder_result, transformed_encoder_result, 1)
+  local target = torch.cat(encoder_pre_result, encoder_post_result, 1)
 
-  -- Create the prediction target from the embedding sentences
-  local target = embedding_sentence_with_vocab_idx:sub(2, -1)
-
-  local sentence_loss = self.criterion:forward(decoder_output, target)
+  local sentence_loss = self.criterion:forward(prediction, target)
   -- print('Sentence Loss:', sentence_loss)
   -- Important: to clear the grad_input from the last forward step.
   self.encoder:forget()
-  self.decoder:forget()
+  self.encoder_pre:forget()
+  self.encoder_post:forget()
 
   return sentence_loss
 end
 
-function AutoEncoder:print_config()
-  print('Configurations for the AutoEncoder Model')
+function ContextEncoder:print_config()
+  print('Configurations for the Skip Thoughts Model')
   local num_params = self.params:nElement()
   printf('%-25s = %.2e\n', 'initial learning rate', self.learning_rate)
   printf('%-25s = %d\n',   'minibatch size', self.batch_size)
@@ -400,8 +458,6 @@ function AutoEncoder:print_config()
   printf('%-25s = %s\n',   'Encoder structure', self.encoder_structure)
   printf('%-25s = %d\n',   'Encoder hidden dim', self.encoder_hidden_dim)
   printf('%-25s = %d\n',   'Encoder # of layers', self.encoder_num_layers)
-  printf('%-25s = %d\n',   'Decoder hidden dim', self.decoder_hidden_dim)
-  printf('%-25s = %d\n',   'Decoder # of layers', self.decoder_num_layers)
   printf('%-25s = %d\n',   'num params', num_params)
 end
 
@@ -409,13 +465,11 @@ end
 --
 -- Serialization
 --
-function AutoEncoder:save(path)
+function ContextEncoder:save(path)
   local config = {
     encoder_hidden_dim  = self.encoder_hidden_dim,
     encoder_num_layers  = self.encoder_num_layers,
     encoder_structure   = self.encoder_structure,
-    decoder_hidden_dim  = self.decoder_hidden_dim,
-    decoder_num_layers  = self.decoder_num_layers,
 
     learning_rate       = self.learning_rate,
     batch_size          = self.batch_size,
@@ -433,11 +487,11 @@ function AutoEncoder:save(path)
   })
 end
 
-function AutoEncoder.load(path)
+function ContextEncoder.load(path)
   local state = torch.load(path)
-  local model = sentenceembedding.AutoEncoder.new(state.config)
+  local model = sentenceembedding.ContextEncoder.new(state.config)
   model.params:copy(state.params)
   return model
 end
 
-return AutoEncoder
+return ContextEncoder

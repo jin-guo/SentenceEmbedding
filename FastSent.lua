@@ -1,6 +1,7 @@
 local FastSent = torch.class('sentenceembedding.FastSent')
 
 function FastSent:__init(config)
+  self.name               = 'FastSent'
   self.init_learning_rate = config.learning_rate or 0.0001
   self.learning_rate = config.learning_rate or 0.0001
   self.batch_size    = config.batch_size    or 10
