@@ -97,9 +97,17 @@ function ContextEncoder:train(dataset, corpus)
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
   local data_count = 0
+  local batch_count = 1
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
     local batch_size = math.min(i + self.batch_size - 1, dataset.size) - i + 1
+    -- 
+    -- if  batch_count%50 == 0 then
+    --   self.learning_rate = self.learning_rate*0.9
+    --   print('Learning rate reduced to:', self.learning_rate)
+    --   batch_count = 1
+    -- end
+    -- batch_count = batch_count + 1
 
     local feval = function(x)
       if x ~= self.params then

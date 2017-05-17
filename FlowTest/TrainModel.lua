@@ -27,6 +27,8 @@ Training script for SkipThought on the Domain Document dataset.
   -w,--wordembedding_name (default 'healthIT_symbol_50d_w10_i20_word2vec') Name of the word embedding file
   -p,--progress_output (default 'progress_test.txt') Name of the progress output file
   -m,--model_output (default 'trained_model_test.model') Name of the trained model
+  -k,--split_data_ratio (default 10)       Split 1/k data as the development(validattion) data
+
 ]]
 
 
@@ -209,7 +211,7 @@ local model_save_path = sentenceembedding.models_dir .. domain_name
   .. '_' .. args.model_output
 local best_dev_loss = 1000000
 -- Start Training
-local train_set, dev_set = split_dataset(dataset, 10)
+local train_set, dev_set = split_dataset(dataset, args.split_data_ratio)
 for i = 1, num_epochs do
   local start = sys.clock()
   print('----------------------------------------------------------------------\n')
