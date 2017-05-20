@@ -25,7 +25,7 @@ function SkipThought:__init(config)
     weightDecay = 1e-5
   }
 
-  self.update_word_embedding = config.update_word_embedding or false
+  self.update_word_embedding = config.update_word_embedding or 0
 
   self.output_progress = config.output_progress or false
   self.progress_writer = config.progress_writer
@@ -560,7 +560,10 @@ function SkipThought:save(path)
 
     -- word embedding
     emb_vecs            = self.emb_vecs,
-    emb_dim             = self.emb_dim
+    emb_dim             = self.emb_dim,
+
+    update_word_embedding = self.update_word_embedding
+
   }
 
   torch.save(path, {

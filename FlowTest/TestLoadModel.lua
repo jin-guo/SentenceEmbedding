@@ -163,4 +163,6 @@ if model_name == 'skipthought' then
 elseif model_name == 'autoencoder' then
   model = sentenceembedding.AutoEncoder.load(sentenceembedding.models_dir .. model_file_name)
   test_autoencoder_loss(dataset, corpus, sentence_idx, model)
+else
+  print('Model name not supported!')
 end

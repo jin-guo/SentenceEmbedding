@@ -23,9 +23,9 @@ function ContextEncoder:__init(config)
     weightDecay = 1e-5
   }
 
-  self.update_word_embedding = config.update_word_embedding or false
+  self.update_word_embedding = config.update_word_embedding or 0
 
-  self.output_progress = config.output_progress or false
+  self.output_progress = config.output_progress or 0
   self.progress_writer = config.progress_writer
 
   -- Set Objective as minimize Negative Log Likelihood
@@ -52,8 +52,6 @@ function ContextEncoder:__init(config)
   self.encoder_pre = sentenceembedding.Encoder(encoder_config)
   self.encoder_post = sentenceembedding.Encoder(encoder_config)
 
-  share_params(self.encoder, self.encoder_pre)
-  share_params(self.encoder, self.encoder_post)
 
   -- initialize Decoder model
   local encoder_out_dim_real
@@ -87,6 +85,10 @@ function ContextEncoder:__init(config)
       self.encoder_params_element_number + self.encoder_params[i]:nElement()
   end
 
+  -- share must only be called after getParameters, since this changes the
+  -- location of the parameters
+  share_params(self.encoder_pre, self.encoder)
+  share_params(self.encoder_post, self.encoder)
 end
 
 function ContextEncoder:train(dataset, corpus)
@@ -101,13 +103,13 @@ function ContextEncoder:train(dataset, corpus)
   for i = 1, dataset.size, self.batch_size do
     xlua.progress(i, dataset.size)
     local batch_size = math.min(i + self.batch_size - 1, dataset.size) - i + 1
-    -- 
-    -- if  batch_count%50 == 0 then
-    --   self.learning_rate = self.learning_rate*0.9
-    --   print('Learning rate reduced to:', self.learning_rate)
-    --   batch_count = 1
-    -- end
-    -- batch_count = batch_count + 1
+
+    if  batch_count%50 == 0 then
+      self.learning_rate = self.learning_rate*0.5
+      print('Learning rate reduced to:', self.learning_rate)
+      batch_count = 1
+    end
+    batch_count = batch_count + 1
 
     local feval = function(x)
       if x ~= self.params then
@@ -290,20 +292,22 @@ function ContextEncoder:input_module_backward(embedding_sentence_with_vocab_idx,
   local merged_index = torch.cat(embedding_sentence_with_vocab_idx,
     pre_sentence_with_vocab_idx,1):cat(post_sentence_with_vocab_idx,1)
   local grad_for_input_model = torch.zeros(merged_index:size(1), encoder_input_grads:size(2))
+
   for i=1, embedding_sentence_with_vocab_idx:size(1) do
     grad_for_input_model[i] = encoder_input_grads[i]
   end
   local count = 1
-  for i=embedding_sentence_with_vocab_idx:size(1)+1,  pre_sentence_with_vocab_idx:size(1) do
+  for i=embedding_sentence_with_vocab_idx:size(1)+1,  embedding_sentence_with_vocab_idx:size(1)+pre_sentence_with_vocab_idx:size(1) do
     grad_for_input_model[i] = pre_encoder_input_grads[count]
     count = count + 1
   end
   count = 1
   for i=embedding_sentence_with_vocab_idx:size(1)+pre_sentence_with_vocab_idx:size(1)+1,
-    post_encoder_input_grads:size(1)  do
-    grad_for_input_model[i] = post_encoder_input_grads[i]
+    embedding_sentence_with_vocab_idx:size(1)+pre_sentence_with_vocab_idx:size(1)+post_encoder_input_grads:size(1)  do
+    grad_for_input_model[i] = post_encoder_input_grads[count]
     count = count + 1
   end
+
   self.input_module:backward(merged_index, grad_for_input_model)
 end
 
@@ -486,7 +490,10 @@ function ContextEncoder:save(path)
 
     -- word embedding
     emb_vecs            = self.emb_vecs,
-    emb_dim             = self.emb_dim
+    emb_dim             = self.emb_dim,
+
+    update_word_embedding = self.update_word_embedding
+
   }
 
   torch.save(path, {
