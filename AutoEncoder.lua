@@ -73,7 +73,7 @@ function AutoEncoder:__init(config)
     :add(nn.Linear(self.decoder_num_layers*self.decoder_hidden_dim, self.emb_vecs:size(1)))
     :add(nn.LogSoftMax())
 
-  -- For getting all the parameters for the SkipThought model
+  -- For getting all the parameters for the current model
   local modules = nn.Parallel()
     :add(self.encoder)
     :add(self.decoder)
@@ -107,7 +107,11 @@ function AutoEncoder:train(dataset, corpus)
   self.encoder:training()
   self.decoder:training()
   self.prob_module:training()
+  if self.update_word_embedding == 1 then
+    self.input_module:training()
+  end
 
+  -- Randomize training data
   local indices = torch.randperm(dataset.size)
   local train_loss = 0
   local data_count = 0
@@ -126,7 +130,7 @@ function AutoEncoder:train(dataset, corpus)
       for j = 1, batch_size do
         local idx = indices[i + j - 1]
 
-        -- load sentence tuple for the current training data point from the corpus
+        -- Load sentence for the current training data point from the corpus
         local embedding_sentence_with_vocab_idx =
           self:load_input_sentences(idx, dataset, corpus)
         if embedding_sentence_with_vocab_idx == nil then
@@ -196,7 +200,7 @@ function AutoEncoder:train(dataset, corpus)
         self.encoder_params_element_number+1, self.decoder_params_element_number)
       local decoder_grad_norm = torch.norm(decoder_grad_params)
       if decoder_grad_norm > self.grad_clip then
-        print('clipping gradient for pre decoder')
+        print('clipping gradient for decoder')
           decoder_grad_params:div(decoder_grad_norm/self.grad_clip)
       end
 

@@ -14,7 +14,7 @@ Training script for SkipThought on the Domain Document dataset.
   --encoder_type   (default bigru)         Model Type for Encoder
   --decoder_layers (default 1)           	 Number of layers for Decoder
   --decoder_dim    (default 20)        	   Size of hidden dimension for Decoder
-  --model_name     (default contextencoder)   Model Type to train
+  --model_name     (default contextencoder)   Model Type to train:skipthought, autoencoder, contextencoder
   --domain_name    (default ehr)           Domain name
   -u,--update_word_emb (default 0)         Update wordEmbedding flag
   -e,--epochs (default 10)                 Number of training epochs
@@ -242,7 +242,7 @@ for i = 1, num_epochs do
     string.format('%s %.4f\n',   'Average Development Loss:', dev_loss))
   progress_writer:write_string('***********************\n')
   if args.learning_rate_decay == 1 then
-    model.learning_rate = model.learning_rate*0.1
+    model.learning_rate = model.learning_rate*0.9
   end
 
   if best_dev_loss > dev_loss then
